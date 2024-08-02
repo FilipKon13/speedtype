@@ -18,14 +18,49 @@ use ratatui::{
     widgets::*,
 };
 
-struct TextManager {
+struct AppLayout<'a> {
+    // main_block, gauge_area, stat_area, text_area
+    main_block: Block<'a>,
+    gauge_area: Rect,
+    stat_area: Rect,
+    text_area: Rect,
+}
+
+fn get_layout<'a>(frame_size: Rect, text_line_width: u16) -> AppLayout<'a> {
+    let main_block = Block::new()
+        .borders(Borders::TOP)
+        .title(block::Title::from("SpeedType").alignment(Alignment::Center));
+    let [gauge_area, _, stat_area, _, text_line, _] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Percentage(20),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas(main_block.inner(frame_size));
+    let [_, text_area, _] = Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(text_line_width),
+        Constraint::Min(0),
+    ])
+    .areas(text_line);
+    AppLayout {
+        main_block,
+        gauge_area,
+        stat_area,
+        text_area,
+    }
+}
+
+pub struct TextManager {
     text: Vec<char>,
     user_text: Vec<char>,
     correct: usize,
 }
 
 impl TextManager {
-    fn new(text: Vec<char>) -> Self {
+    fn _new(text: Vec<char>) -> Self {
         TextManager {
             text,
             user_text: vec![],
@@ -71,16 +106,17 @@ impl TextManager {
                             .chain(iter::repeat(None)),
                     )
                     .map(|(&c, u)| {
-                        Span::raw(c.to_string()).style(match u {
+                        let span = Span::raw(c.to_string());
+                        match u {
                             Some(u) => {
                                 if c == u {
-                                    Color::Green
+                                    span.green()
                                 } else {
-                                    Color::Red
+                                    span.blue().on_red()
                                 }
                             }
-                            None => Color::Blue,
-                        })
+                            None => span.blue(),
+                        }
                     })
                     .collect::<Vec<_>>(),
             ),
@@ -135,16 +171,16 @@ impl<'a> Widget for TestLine<'a> {
     }
 }
 
-pub struct Runner {
+pub struct StartedRunner {
     start: SystemTime,
     text_manager: TextManager,
 }
 
-impl Runner {
-    pub fn new() -> Self {
-        Runner {
+impl StartedRunner {
+    fn new(text_manager: TextManager) -> Self {
+        StartedRunner {
             start: SystemTime::now(),
-            text_manager: TextManager::new_english(50),
+            text_manager,
         }
     }
     fn handle_events(&mut self) -> io::Result<bool> {
@@ -165,7 +201,7 @@ impl Runner {
     }
     fn gauge_percent(&self) -> u16 {
         let res = self.milis_elapsed().unwrap_or(0) * 100 / 60000;
-        return min(res, 100u128).try_into().unwrap();
+        min(res, 100u128).try_into().unwrap()
     }
     fn wpm(&self) -> u16 {
         if let Ok(milis) = self.milis_elapsed() {
@@ -190,25 +226,12 @@ impl Runner {
         .left_aligned();
         let text = self.text_manager.get_widget();
         move |frame| {
-            let main_block = Block::new()
-                .borders(Borders::TOP)
-                .title(block::Title::from("SpeedType").alignment(Alignment::Center));
-            let [gauge_area, _, stat_area, _, text_line, _] = Layout::vertical([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Percentage(20),
-                Constraint::Length(1),
-                Constraint::Min(0),
-            ])
-            .areas(main_block.inner(frame.size()));
-            let [_, text_area, _] = Layout::horizontal([
-                Constraint::Min(0),
-                Constraint::Length(text.line.width() as u16),
-                Constraint::Min(0),
-            ])
-            .areas(text_line);
-
+            let AppLayout {
+                main_block,
+                gauge_area,
+                stat_area,
+                text_area,
+            } = get_layout(frame.size(), text.line.width() as u16);
             frame.render_widget(main_block, frame.size());
             frame.render_widget(gauge, gauge_area);
             frame.render_widget(stat_line, stat_area);
@@ -217,6 +240,59 @@ impl Runner {
             frame.set_cursor(x, y);
         }
     }
+}
+
+pub enum Runner {
+    BeforeStart(TextManager),
+    Started(StartedRunner),
+    Done(),
+}
+
+impl Runner {
+    fn get_ui(&self) -> Box<dyn FnOnce(&mut Frame)> {
+        match self {
+            Runner::BeforeStart(text_manager) => {
+                let text = text_manager.get_widget();
+                Box::new(move |frame: &mut Frame| {
+                    let AppLayout {
+                        main_block,
+                        gauge_area: _,
+                        stat_area: _,
+                        text_area,
+                    } = get_layout(frame.size(), text.line.width() as u16);
+                    frame.render_widget(main_block, frame.size());
+                    let (x, y) = text.get_cursor(text_area);
+                    frame.render_widget(text, text_area);
+                    frame.set_cursor(x, y)
+                })
+            }
+            Runner::Started(runner) => Box::new(runner.get_ui()),
+            Runner::Done() => unreachable!(),
+        }
+    }
+    fn handle_events(mut self) -> io::Result<Self> {
+        match self {
+            Runner::BeforeStart(mut text_manager) => {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == event::KeyEventKind::Press {
+                        text_manager.handle_key(key.code);
+                    }
+                }
+                Ok(Runner::Started(StartedRunner::new(text_manager)))
+            }
+            Runner::Started(ref mut runner) => {
+                if runner.handle_events()? {
+                    Ok(Runner::Done())
+                } else {
+                    Ok(self)
+                }
+            }
+            Runner::Done() => unreachable!(),
+        }
+    }
+    pub fn new() -> Self {
+        Runner::BeforeStart(TextManager::new_english(50))
+    }
     pub fn run(mut self) -> io::Result<()> {
         enable_raw_mode()?;
         stdout().execute(EnterAlternateScreen)?;
@@ -224,7 +300,8 @@ impl Runner {
 
         loop {
             terminal.draw(self.get_ui())?;
-            if self.handle_events()? {
+            self = self.handle_events()?;
+            if let Runner::Done() = self {
                 break;
             }
         }
