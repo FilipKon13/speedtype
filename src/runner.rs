@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     cmp::min,
     io::{self, stdout},
     iter,
@@ -152,47 +153,90 @@ impl<'a> Widget for TestLine<'a> {
     }
 }
 
-pub struct StartedRunner {
-    start: SystemTime,
-    text_manager: TextManager,
-}
-
-impl StartedRunner {
-    fn new(text_manager: TextManager) -> Self {
-        StartedRunner {
-            start: SystemTime::now(),
-            text_manager,
-        }
-    }
-    fn handle_events(&mut self) -> io::Result<bool> {
-        if event::poll(Duration::from_millis(100))? {
+fn read_key() -> io::Result<Option<KeyCode>> {
+    let end_time = SystemTime::now()
+        .checked_add(Duration::from_millis(100))
+        .unwrap();
+    loop {
+        if event::poll(
+            end_time
+                .duration_since(SystemTime::now())
+                .unwrap_or(Duration::from_secs(0)),
+        )? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == event::KeyEventKind::Press {
-                    self.text_manager.handle_key(key.code);
-                    if key.code == KeyCode::Esc {
-                        return Ok(true);
-                    }
+                    break Ok(Some(key.code));
                 }
             }
+        } else {
+            return Ok(None);
         }
-        Ok(false)
     }
-    fn milis_elapsed(&self) -> Result<u128, SystemTimeError> {
+}
+
+struct TimeManager {
+    start: SystemTime,
+    last_wpm_update: RefCell<SystemTime>,
+    last_wpm: RefCell<u16>,
+}
+
+impl TimeManager {
+    pub fn new(time: SystemTime) -> Self {
+        TimeManager {
+            start: time,
+            last_wpm_update: RefCell::new(time),
+            last_wpm: RefCell::new(0),
+        }
+    }
+    pub fn milis_elapsed(&self) -> Result<u128, SystemTimeError> {
         self.start.elapsed().map(|dur| dur.as_millis())
     }
-    fn gauge_percent(&self) -> u16 {
-        let res = self.milis_elapsed().unwrap_or(0) * 100 / 60000;
-        min(res, 100u128).try_into().unwrap()
-    }
-    fn wpm(&self) -> u16 {
+    fn current_wpm(&self, correct_letters: u16) -> u16 {
         if let Ok(milis) = self.milis_elapsed() {
             if milis != 0 {
-                return (self.text_manager.correct() as u128 * 12000 / milis) as u16;
+                return (correct_letters as u128 * 12000 / milis) as u16;
             }
         }
         0
     }
-    fn get_ui(&self) -> impl FnOnce(&mut Frame) {
+    pub fn wpm(&self, correct_letters: u16) -> u16 {
+        let mut last_update = self.last_wpm_update.borrow_mut();
+        if let Ok(expired) = last_update.elapsed().map(|t| t >= Duration::from_secs(1)) {
+            if expired {
+                self.last_wpm.replace(self.current_wpm(correct_letters));
+                *last_update = SystemTime::now();
+            }
+            return *self.last_wpm.borrow();
+        }
+        0
+    }
+}
+
+pub struct StartedRunner {
+    time_manager: TimeManager,
+    text_manager: TextManager,
+}
+
+impl StartedRunner {
+    pub fn new(text_manager: TextManager) -> Self {
+        StartedRunner {
+            time_manager: TimeManager::new(SystemTime::now()),
+            text_manager,
+        }
+    }
+    pub fn handle_events(&mut self) -> io::Result<bool> {
+        if let Some(key) = read_key()? {
+            self.text_manager.handle_key(key);
+            Ok(key == KeyCode::Esc)
+        } else {
+            Ok(false)
+        }
+    }
+    fn gauge_percent(&self) -> u16 {
+        let res = self.time_manager.milis_elapsed().unwrap_or(0) * 100 / 60000;
+        min(res, 100u128).try_into().unwrap()
+    }
+    pub fn get_ui(&self) -> impl FnOnce(&mut Frame) {
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(Color::Blue).bg(Color::Red))
             .percent(self.gauge_percent())
@@ -200,7 +244,10 @@ impl StartedRunner {
             .use_unicode(true);
         let stat_line = Line::from(vec![
             "WPM: ".bold(),
-            self.wpm().to_string().into(),
+            self.time_manager
+                .wpm(self.text_manager.correct() as u16)
+                .to_string()
+                .into(),
             " Acc: ".bold(),
             self.text_manager.correct().to_string().into(),
         ])
@@ -254,12 +301,12 @@ impl Runner {
     fn handle_events(mut self) -> io::Result<Self> {
         match self {
             Runner::BeforeStart(mut text_manager) => {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == event::KeyEventKind::Press {
-                        text_manager.handle_key(key.code);
-                    }
+                if let Ok(Some(key)) = read_key() {
+                    text_manager.handle_key(key);
+                    Ok(Runner::Started(StartedRunner::new(text_manager)))
+                } else {
+                    Ok(Runner::BeforeStart(text_manager))
                 }
-                Ok(Runner::Started(StartedRunner::new(text_manager)))
             }
             Runner::Started(ref mut runner) => {
                 if runner.handle_events()? {
