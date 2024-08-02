@@ -1,8 +1,10 @@
 use std::{
     cmp::min,
-    io::{self, stdout},
+    fs::File,
+    io::{self, stdout, Read},
     iter,
-    time::SystemTime,
+    path::PathBuf,
+    time::{Duration, SystemTime, SystemTimeError},
     vec,
 };
 
@@ -18,30 +20,97 @@ use ratatui::{
 
 struct TextManager {
     text: Vec<char>,
-    ind: usize,
+    user_text: Vec<char>,
+    correct: usize,
 }
 
 impl TextManager {
     fn new(text: Vec<char>) -> Self {
-        TextManager { text, ind: 0 }
+        TextManager {
+            text,
+            user_text: vec![],
+            correct: 0,
+        }
+    }
+    fn new_english(max_width: u16) -> Self {
+        let mut file =
+            File::open(["languages", "english.txt"].iter().collect::<PathBuf>()).unwrap();
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).unwrap();
+        let words = buf
+            .split_ascii_whitespace()
+            .map(|s| s.to_lowercase().chars().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        let mut text = vec![];
+        for word in words.iter() {
+            if text.len() + word.len() < max_width as usize {
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.extend(word);
+            } else {
+                break;
+            }
+        }
+        TextManager {
+            text,
+            user_text: vec![],
+            correct: 0,
+        }
     }
     fn get_widget<'a>(&self) -> TestLine<'a> {
         TestLine {
-            line: Line::raw(self.text.iter().collect::<String>()),
-            cursor_ind: self.ind as u16,
+            line: Line::from(
+                self.text
+                    .iter()
+                    .zip(
+                        self.user_text
+                            .clone()
+                            .into_iter()
+                            .map(Some)
+                            .chain(iter::repeat(None)),
+                    )
+                    .map(|(&c, u)| {
+                        Span::raw(c.to_string()).style(match u {
+                            Some(u) => {
+                                if c == u {
+                                    Color::Green
+                                } else {
+                                    Color::Red
+                                }
+                            }
+                            None => Color::Blue,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            cursor_ind: self.user_text.len() as u16,
         }
     }
     fn handle_key(&mut self, key: KeyCode) {
-        if let Some(&c) = self.text.get(self.ind) {
-            if key == KeyCode::Char(c) {
-                self.ind += 1;
-            } else if key == KeyCode::Backspace {
-                self.ind = self.ind.saturating_sub(1);
+        match key {
+            KeyCode::Char(u) => {
+                if let Some(&c) = self.text.get(self.user_text.len()) {
+                    self.user_text.push(u);
+                    if c == u {
+                        self.correct += 1;
+                    }
+                }
             }
+            KeyCode::Backspace => {
+                if let Some(u) = self.user_text.pop() {
+                    if let Some(&c) = self.text.get(self.user_text.len()) {
+                        if c == u {
+                            self.correct -= 1;
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
-    fn get_correct(&self) -> usize {
-        self.ind
+    fn correct(&self) -> usize {
+        self.correct
     }
 }
 
@@ -51,7 +120,7 @@ struct TestLine<'a> {
 }
 
 impl<'a> TestLine<'a> {
-    // use same `area` while rendering
+    /// use same `area` as in `Frame::render()`
     fn get_cursor(&self, area: Rect) -> (u16, u16) {
         (area.left() + self.cursor_ind, area.top())
     }
@@ -75,15 +144,15 @@ impl Runner {
     pub fn new() -> Self {
         Runner {
             start: SystemTime::now(),
-            text_manager: TextManager::new(iter::repeat('a').take(50).collect()),
+            text_manager: TextManager::new_english(50),
         }
     }
     fn handle_events(&mut self) -> io::Result<bool> {
-        if event::poll(std::time::Duration::from_millis(100))? {
+        if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == event::KeyEventKind::Press {
                     self.text_manager.handle_key(key.code);
-                    if key.code == KeyCode::Char('q') {
+                    if key.code == KeyCode::Esc {
                         return Ok(true);
                     }
                 }
@@ -91,7 +160,7 @@ impl Runner {
         }
         Ok(false)
     }
-    fn milis_elapsed(&self) -> Result<u128, std::time::SystemTimeError> {
+    fn milis_elapsed(&self) -> Result<u128, SystemTimeError> {
         self.start.elapsed().map(|dur| dur.as_millis())
     }
     fn gauge_percent(&self) -> u16 {
@@ -101,7 +170,7 @@ impl Runner {
     fn wpm(&self) -> u16 {
         if let Ok(milis) = self.milis_elapsed() {
             if milis != 0 {
-                return (self.text_manager.get_correct() as u128 * 12000 / milis) as u16;
+                return (self.text_manager.correct() as u128 * 12000 / milis) as u16;
             }
         }
         0
@@ -116,7 +185,7 @@ impl Runner {
             "WPM: ".bold(),
             self.wpm().to_string().into(),
             " Acc: ".bold(),
-            "0".into(),
+            self.text_manager.correct().to_string().into(),
         ])
         .left_aligned();
         let text = self.text_manager.get_widget();
@@ -133,12 +202,18 @@ impl Runner {
                 Constraint::Min(0),
             ])
             .areas(main_block.inner(frame.size()));
+            let [_, text_area, _] = Layout::horizontal([
+                Constraint::Min(0),
+                Constraint::Length(text.line.width() as u16),
+                Constraint::Min(0),
+            ])
+            .areas(text_line);
 
             frame.render_widget(main_block, frame.size());
             frame.render_widget(gauge, gauge_area);
             frame.render_widget(stat_line, stat_area);
-            let (x, y) = text.get_cursor(text_line);
-            frame.render_widget(text, text_line);
+            let (x, y) = text.get_cursor(text_area);
+            frame.render_widget(text, text_area);
             frame.set_cursor(x, y);
         }
     }
