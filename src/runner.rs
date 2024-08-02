@@ -1,9 +1,7 @@
 use std::{
     cmp::min,
-    fs::File,
-    io::{self, stdout, Read},
+    io::{self, stdout},
     iter,
-    path::PathBuf,
     time::{Duration, SystemTime, SystemTimeError},
     vec,
 };
@@ -17,6 +15,8 @@ use ratatui::{
     prelude::*,
     widgets::*,
 };
+
+use crate::langs;
 
 struct AppLayout<'a> {
     // main_block, gauge_area, stat_area, text_area
@@ -68,27 +68,8 @@ impl TextManager {
         }
     }
     fn new_english(max_width: u16) -> Self {
-        let mut file =
-            File::open(["languages", "english.txt"].iter().collect::<PathBuf>()).unwrap();
-        let mut buf = String::new();
-        file.read_to_string(&mut buf).unwrap();
-        let words = buf
-            .split_ascii_whitespace()
-            .map(|s| s.to_lowercase().chars().collect::<Vec<_>>())
-            .collect::<Vec<_>>();
-        let mut text = vec![];
-        for word in words.iter() {
-            if text.len() + word.len() < max_width as usize {
-                if !text.is_empty() {
-                    text.push(' ');
-                }
-                text.extend(word);
-            } else {
-                break;
-            }
-        }
         TextManager {
-            text,
+            text: langs::text_language(max_width, "english").unwrap(),
             user_text: vec![],
             correct: 0,
         }
