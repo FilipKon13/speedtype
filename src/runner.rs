@@ -1,58 +1,25 @@
 use std::{
-    cell::RefCell,
+    cell::Cell,
     cmp::min,
     io::{self, stdout},
-    iter,
     time::{Duration, SystemTime, SystemTimeError},
     vec,
 };
 
 use ratatui::{
     crossterm::{
-        event::{self, Event, KeyCode},
+        event::KeyCode,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
     prelude::*,
-    widgets::*,
 };
 
-use crate::langs;
-
-struct AppLayout<'a> {
-    // main_block, gauge_area, stat_area, text_area
-    main_block: Block<'a>,
-    gauge_area: Rect,
-    stat_area: Rect,
-    text_area: Rect,
-}
-
-fn get_layout<'a>(frame_size: Rect, text_line_width: u16) -> AppLayout<'a> {
-    let main_block = Block::new()
-        .borders(Borders::TOP)
-        .title(block::Title::from("SpeedType").alignment(Alignment::Center));
-    let [gauge_area, _, stat_area, _, text_line, _] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Percentage(20),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .areas(main_block.inner(frame_size));
-    let [_, text_area, _] = Layout::horizontal([
-        Constraint::Min(0),
-        Constraint::Length(text_line_width),
-        Constraint::Min(0),
-    ])
-    .areas(text_line);
-    AppLayout {
-        main_block,
-        gauge_area,
-        stat_area,
-        text_area,
-    }
-}
+use crate::{
+    input::read_key,
+    langs,
+    layout::{get_ui_live, get_ui_start, TestLine},
+};
 
 pub struct TextManager {
     text: Vec<char>,
@@ -75,35 +42,8 @@ impl TextManager {
             correct: 0,
         }
     }
-    fn get_widget<'a>(&self) -> TestLine<'a> {
-        TestLine {
-            line: Line::from(
-                self.text
-                    .iter()
-                    .zip(
-                        self.user_text
-                            .clone()
-                            .into_iter()
-                            .map(Some)
-                            .chain(iter::repeat(None)),
-                    )
-                    .map(|(&c, u)| {
-                        let span = Span::raw(c.to_string());
-                        match u {
-                            Some(u) => {
-                                if c == u {
-                                    span.green()
-                                } else {
-                                    span.blue().on_red()
-                                }
-                            }
-                            None => span.blue(),
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            ),
-            cursor_ind: self.user_text.len() as u16,
-        }
+    pub fn get_widget<'a>(&self) -> TestLine<'a> {
+        TestLine::new(&self.text, &self.user_text)
     }
     fn handle_key(&mut self, key: KeyCode) {
         match key {
@@ -132,63 +72,21 @@ impl TextManager {
     }
 }
 
-struct TestLine<'a> {
-    line: Line<'a>,
-    cursor_ind: u16,
-}
-
-impl<'a> TestLine<'a> {
-    /// use same `area` as in `Frame::render()`
-    fn get_cursor(&self, area: Rect) -> (u16, u16) {
-        (area.left() + self.cursor_ind, area.top())
-    }
-}
-
-impl<'a> Widget for TestLine<'a> {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
-        self.line.render(area, buf)
-    }
-}
-
-fn read_key() -> io::Result<Option<KeyCode>> {
-    let end_time = SystemTime::now()
-        .checked_add(Duration::from_millis(100))
-        .unwrap();
-    loop {
-        if event::poll(
-            end_time
-                .duration_since(SystemTime::now())
-                .unwrap_or(Duration::from_secs(0)),
-        )? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == event::KeyEventKind::Press {
-                    break Ok(Some(key.code));
-                }
-            }
-        } else {
-            return Ok(None);
-        }
-    }
-}
-
 struct TimeManager {
     start: SystemTime,
-    last_wpm_update: RefCell<SystemTime>,
-    last_wpm: RefCell<u16>,
+    last_wpm_update: Cell<SystemTime>,
+    last_wpm: Cell<u16>,
 }
 
 impl TimeManager {
-    pub fn new(time: SystemTime) -> Self {
+    fn new(time: SystemTime) -> Self {
         TimeManager {
             start: time,
-            last_wpm_update: RefCell::new(time),
-            last_wpm: RefCell::new(0),
+            last_wpm_update: Cell::new(time),
+            last_wpm: Cell::new(0),
         }
     }
-    pub fn milis_elapsed(&self) -> Result<u128, SystemTimeError> {
+    fn milis_elapsed(&self) -> Result<u128, SystemTimeError> {
         self.start.elapsed().map(|dur| dur.as_millis())
     }
     fn current_wpm(&self, correct_letters: u16) -> u16 {
@@ -199,14 +97,18 @@ impl TimeManager {
         }
         0
     }
-    pub fn wpm(&self, correct_letters: u16) -> u16 {
-        let mut last_update = self.last_wpm_update.borrow_mut();
-        if let Ok(expired) = last_update.elapsed().map(|t| t >= Duration::from_secs(1)) {
+    fn wpm(&self, correct_letters: u16) -> u16 {
+        if let Ok(expired) = self
+            .last_wpm_update
+            .get()
+            .elapsed()
+            .map(|t| t >= Duration::from_secs(1))
+        {
             if expired {
-                self.last_wpm.replace(self.current_wpm(correct_letters));
-                *last_update = SystemTime::now();
+                self.last_wpm.set(self.current_wpm(correct_letters));
+                self.last_wpm_update.set(SystemTime::now());
             }
-            return *self.last_wpm.borrow();
+            return self.last_wpm.get();
         }
         0
     }
@@ -237,36 +139,12 @@ impl StartedRunner {
         min(res, 100u128).try_into().unwrap()
     }
     pub fn get_ui(&self) -> impl FnOnce(&mut Frame) {
-        let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(Color::Blue).bg(Color::Red))
-            .percent(self.gauge_percent())
-            .label(Span::default())
-            .use_unicode(true);
-        let stat_line = Line::from(vec![
-            "WPM: ".bold(),
-            self.time_manager
-                .wpm(self.text_manager.correct() as u16)
-                .to_string()
-                .into(),
-            " Acc: ".bold(),
-            self.text_manager.correct().to_string().into(),
-        ])
-        .left_aligned();
-        let text = self.text_manager.get_widget();
-        move |frame| {
-            let AppLayout {
-                main_block,
-                gauge_area,
-                stat_area,
-                text_area,
-            } = get_layout(frame.size(), text.line.width() as u16);
-            frame.render_widget(main_block, frame.size());
-            frame.render_widget(gauge, gauge_area);
-            frame.render_widget(stat_line, stat_area);
-            let (x, y) = text.get_cursor(text_area);
-            frame.render_widget(text, text_area);
-            frame.set_cursor(x, y);
-        }
+        get_ui_live(
+            self.time_manager.wpm(self.text_manager.correct() as u16),
+            self.text_manager.correct as u16,
+            self.gauge_percent(),
+            self.text_manager.get_widget(),
+        )
     }
 }
 
@@ -279,21 +157,7 @@ pub enum Runner {
 impl Runner {
     fn get_ui(&self) -> Box<dyn FnOnce(&mut Frame)> {
         match self {
-            Runner::BeforeStart(text_manager) => {
-                let text = text_manager.get_widget();
-                Box::new(move |frame: &mut Frame| {
-                    let AppLayout {
-                        main_block,
-                        gauge_area: _,
-                        stat_area: _,
-                        text_area,
-                    } = get_layout(frame.size(), text.line.width() as u16);
-                    frame.render_widget(main_block, frame.size());
-                    let (x, y) = text.get_cursor(text_area);
-                    frame.render_widget(text, text_area);
-                    frame.set_cursor(x, y)
-                })
-            }
+            Runner::BeforeStart(text_manager) => Box::new(get_ui_start(text_manager.get_widget())),
             Runner::Started(runner) => Box::new(runner.get_ui()),
             Runner::Done() => unreachable!(),
         }
@@ -337,5 +201,11 @@ impl Runner {
         disable_raw_mode()?;
         stdout().execute(LeaveAlternateScreen)?;
         Ok(())
+    }
+}
+
+impl Default for Runner {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,6 +1,8 @@
 use runner::Runner;
 
+pub mod input;
 pub mod langs;
+pub mod layout;
 pub mod runner;
 
 pub fn initialize_panic_handler() {
