@@ -10,7 +10,7 @@ pub fn read_key() -> std::io::Result<Option<KeyCode>> {
         if poll(
             end_time
                 .duration_since(SystemTime::now())
-                .unwrap_or(Duration::from_secs(0)),
+                .unwrap_or_default(),
         )? {
             if let Event::Key(key) = read()? {
                 if key.kind == KeyEventKind::Press {

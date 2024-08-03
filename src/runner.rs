@@ -42,29 +42,24 @@ impl TextManager {
             correct: 0,
         }
     }
-    pub fn get_widget<'a>(&self) -> TestLine<'a> {
+    fn get_widget<'a>(&self) -> TestLine<'a> {
         TestLine::new(&self.text, &self.user_text)
     }
-    fn handle_key(&mut self, key: KeyCode) {
-        match key {
-            KeyCode::Char(u) => {
-                if let Some(&c) = self.text.get(self.user_text.len()) {
-                    self.user_text.push(u);
-                    if c == u {
-                        self.correct += 1;
-                    }
+    fn handle_char(&mut self, u: char) {
+        if let Some(&c) = self.text.get(self.user_text.len()) {
+            self.user_text.push(u);
+            if c == u {
+                self.correct += 1;
+            }
+        }
+    }
+    fn handle_backspace(&mut self) {
+        if let Some(u) = self.user_text.pop() {
+            if let Some(&c) = self.text.get(self.user_text.len()) {
+                if c == u {
+                    self.correct -= 1;
                 }
             }
-            KeyCode::Backspace => {
-                if let Some(u) = self.user_text.pop() {
-                    if let Some(&c) = self.text.get(self.user_text.len()) {
-                        if c == u {
-                            self.correct -= 1;
-                        }
-                    }
-                }
-            }
-            _ => {}
         }
     }
     fn correct(&self) -> usize {
@@ -114,31 +109,49 @@ impl TimeManager {
     }
 }
 
+enum RunnerAction {
+    Reset,
+    Continue,
+    End,
+}
+
 pub struct StartedRunner {
     time_manager: TimeManager,
     text_manager: TextManager,
 }
 
 impl StartedRunner {
-    pub fn new(text_manager: TextManager) -> Self {
+    fn new(text_manager: TextManager) -> Self {
         StartedRunner {
             time_manager: TimeManager::new(SystemTime::now()),
             text_manager,
         }
     }
-    pub fn handle_events(&mut self) -> io::Result<bool> {
-        if let Some(key) = read_key()? {
-            self.text_manager.handle_key(key);
-            Ok(key == KeyCode::Esc)
+    fn handle_events(&mut self) -> io::Result<RunnerAction> {
+        let next_state = if let Some(key) = read_key()? {
+            match key {
+                KeyCode::Char(u) => {
+                    self.text_manager.handle_char(u);
+                    RunnerAction::Continue
+                }
+                KeyCode::Backspace => {
+                    self.text_manager.handle_backspace();
+                    RunnerAction::Continue
+                }
+                KeyCode::Esc => RunnerAction::End,
+                KeyCode::Tab => RunnerAction::Reset,
+                _ => RunnerAction::Continue,
+            }
         } else {
-            Ok(false)
-        }
+            RunnerAction::Continue
+        };
+        Ok(next_state)
     }
     fn gauge_percent(&self) -> u16 {
         let res = self.time_manager.milis_elapsed().unwrap_or(0) * 100 / 60000;
         min(res, 100u128).try_into().unwrap()
     }
-    pub fn get_ui(&self) -> impl FnOnce(&mut Frame) {
+    fn get_ui(&self) -> impl FnOnce(&mut Frame) {
         get_ui_live(
             self.time_manager.wpm(self.text_manager.correct() as u16),
             self.text_manager.correct as u16,
@@ -163,24 +176,30 @@ impl Runner {
         }
     }
     fn handle_events(mut self) -> io::Result<Self> {
-        match self {
+        let next_state = match self {
             Runner::BeforeStart(mut text_manager) => {
                 if let Ok(Some(key)) = read_key() {
-                    text_manager.handle_key(key);
-                    Ok(Runner::Started(StartedRunner::new(text_manager)))
+                    match key {
+                        KeyCode::Char(c) => {
+                            text_manager.handle_char(c);
+                            Runner::Started(StartedRunner::new(text_manager))
+                        }
+                        KeyCode::Esc => Runner::Done(),
+                        KeyCode::Tab => Runner::new(),
+                        _ => Runner::BeforeStart(text_manager),
+                    }
                 } else {
-                    Ok(Runner::BeforeStart(text_manager))
+                    Runner::BeforeStart(text_manager)
                 }
             }
-            Runner::Started(ref mut runner) => {
-                if runner.handle_events()? {
-                    Ok(Runner::Done())
-                } else {
-                    Ok(self)
-                }
-            }
+            Runner::Started(ref mut runner) => match runner.handle_events()? {
+                RunnerAction::Continue => self,
+                RunnerAction::End => Runner::Done(),
+                RunnerAction::Reset => Runner::new(),
+            },
             Runner::Done() => unreachable!(),
-        }
+        };
+        Ok(next_state)
     }
     pub fn new() -> Self {
         Runner::BeforeStart(TextManager::new_english(50))

@@ -10,6 +10,7 @@ pub fn text_language(max_width: u16, lang: &str) -> Result<Vec<char>, std::io::E
     file.read_to_string(&mut buf)?;
     let words = buf
         .split_ascii_whitespace()
+        .filter(|s| s.len() > 1)
         .map(|s| s.to_lowercase().chars().collect::<Vec<_>>())
         .collect::<Vec<_>>();
     let mut text = vec![];
