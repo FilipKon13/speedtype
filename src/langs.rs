@@ -1,28 +1,60 @@
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::PathBuf,
+};
 
-pub fn text_language(max_width: u16, lang: &str) -> Result<Vec<char>, std::io::Error> {
-    let mut file = {
-        let mut path = ["languages", lang].iter().collect::<PathBuf>();
-        path.set_extension("txt");
-        File::open(path)?
-    };
-    let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
-    let words = buf
-        .split_ascii_whitespace()
-        .filter(|s| s.len() > 1)
-        .map(|s| s.to_lowercase().chars().collect::<Vec<_>>())
-        .collect::<Vec<_>>();
-    let mut text = vec![];
-    for word in words.iter() {
-        if text.len() + word.len() < max_width as usize {
-            if !text.is_empty() {
-                text.push(' ');
-            }
-            text.extend(word);
-        } else {
-            break;
-        }
+use rand::{rngs::ThreadRng, thread_rng, Rng};
+
+pub trait WordSupplier {
+    fn get_word(&mut self) -> Vec<char>;
+}
+
+pub struct WordSupplierRandomized {
+    words: Vec<Vec<char>>,
+    rng: ThreadRng,
+}
+
+impl WordSupplierRandomized {
+    pub fn new(lang: &str) -> io::Result<Self> {
+        let mut file = {
+            let mut path = ["languages", lang].iter().collect::<PathBuf>();
+            path.set_extension("txt");
+            File::open(path)?
+        };
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        let words = buf
+            .split_ascii_whitespace()
+            .filter(|s| s.len() > 1)
+            .map(|s| s.to_lowercase().chars().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        Ok(WordSupplierRandomized {
+            words,
+            rng: thread_rng(),
+        })
     }
-    Ok(text)
+}
+
+impl WordSupplier for WordSupplierRandomized {
+    fn get_word(&mut self) -> Vec<char> {
+        let index = self.rng.gen::<usize>() % self.words.len();
+        self.words.get(index).unwrap().clone()
+    }
+}
+
+pub struct WordSupplierBasic {
+    text: Vec<char>,
+}
+
+impl WordSupplier for WordSupplierBasic {
+    fn get_word(&mut self) -> Vec<char> {
+        self.text.clone()
+    }
+}
+
+impl WordSupplierBasic {
+    pub fn new(text: Vec<char>) -> Self {
+        WordSupplierBasic { text }
+    }
 }

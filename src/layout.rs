@@ -87,12 +87,16 @@ impl<'a> Widget for TestLine<'a> {
     }
 }
 
-pub fn get_ui_live(
+pub trait TextWidgetGenerator {
+    fn get_widget<'a>(&self, width: u16) -> TestLine<'a>;
+}
+
+pub fn get_ui_live<Wg: TextWidgetGenerator>(
     wpm: u16,
     acc: u16,
     gauge_percent: u16,
-    text: TestLine,
-) -> impl FnOnce(&mut Frame) + '_ {
+    wid_gen: &Wg,
+) -> impl FnOnce(&mut Frame) {
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(Color::Blue).bg(Color::Red))
         .percent(gauge_percent)
@@ -105,6 +109,7 @@ pub fn get_ui_live(
         acc.to_string().into(),
     ])
     .left_aligned();
+    let text = wid_gen.get_widget(50);
     move |frame| {
         let AppLayout {
             main_block,
@@ -121,7 +126,8 @@ pub fn get_ui_live(
     }
 }
 
-pub fn get_ui_start(text: TestLine) -> impl FnOnce(&mut Frame) + '_ {
+pub fn get_ui_start<Wg: TextWidgetGenerator>(wid_gen: &Wg) -> impl FnOnce(&mut Frame) {
+    let text = wid_gen.get_widget(50);
     move |frame: &mut Frame| {
         let AppLayout {
             main_block,

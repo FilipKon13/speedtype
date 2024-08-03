@@ -3,7 +3,6 @@ use std::{
     cmp::min,
     io::{self, stdout},
     time::{Duration, SystemTime, SystemTimeError},
-    vec,
 };
 
 use ratatui::{
@@ -17,55 +16,9 @@ use ratatui::{
 
 use crate::{
     input::read_key,
-    langs,
-    layout::{get_ui_live, get_ui_start, TestLine},
+    layout::{get_ui_live, get_ui_start},
+    text::TextManagerLang,
 };
-
-pub struct TextManager {
-    text: Vec<char>,
-    user_text: Vec<char>,
-    correct: usize,
-}
-
-impl TextManager {
-    fn _new(text: Vec<char>) -> Self {
-        TextManager {
-            text,
-            user_text: vec![],
-            correct: 0,
-        }
-    }
-    fn new_english(max_width: u16) -> Self {
-        TextManager {
-            text: langs::text_language(max_width, "english").unwrap(),
-            user_text: vec![],
-            correct: 0,
-        }
-    }
-    fn get_widget<'a>(&self) -> TestLine<'a> {
-        TestLine::new(&self.text, &self.user_text)
-    }
-    fn handle_char(&mut self, u: char) {
-        if let Some(&c) = self.text.get(self.user_text.len()) {
-            self.user_text.push(u);
-            if c == u {
-                self.correct += 1;
-            }
-        }
-    }
-    fn handle_backspace(&mut self) {
-        if let Some(u) = self.user_text.pop() {
-            if let Some(&c) = self.text.get(self.user_text.len()) {
-                if c == u {
-                    self.correct -= 1;
-                }
-            }
-        }
-    }
-    fn correct(&self) -> usize {
-        self.correct
-    }
-}
 
 struct TimeManager {
     start: SystemTime,
@@ -117,11 +70,11 @@ enum RunnerAction {
 
 pub struct StartedRunner {
     time_manager: TimeManager,
-    text_manager: TextManager,
+    text_manager: TextManagerLang,
 }
 
 impl StartedRunner {
-    fn new(text_manager: TextManager) -> Self {
+    fn new(text_manager: TextManagerLang) -> Self {
         StartedRunner {
             time_manager: TimeManager::new(SystemTime::now()),
             text_manager,
@@ -154,15 +107,15 @@ impl StartedRunner {
     fn get_ui(&self) -> impl FnOnce(&mut Frame) {
         get_ui_live(
             self.time_manager.wpm(self.text_manager.correct() as u16),
-            self.text_manager.correct as u16,
+            self.text_manager.correct() as u16,
             self.gauge_percent(),
-            self.text_manager.get_widget(),
+            &self.text_manager,
         )
     }
 }
 
 pub enum Runner {
-    BeforeStart(TextManager),
+    BeforeStart(TextManagerLang),
     Started(StartedRunner),
     Done(),
 }
@@ -170,7 +123,7 @@ pub enum Runner {
 impl Runner {
     fn get_ui(&self) -> Box<dyn FnOnce(&mut Frame)> {
         match self {
-            Runner::BeforeStart(text_manager) => Box::new(get_ui_start(text_manager.get_widget())),
+            Runner::BeforeStart(text_manager) => Box::new(get_ui_start(text_manager)),
             Runner::Started(runner) => Box::new(runner.get_ui()),
             Runner::Done() => unreachable!(),
         }
@@ -202,7 +155,7 @@ impl Runner {
         Ok(next_state)
     }
     pub fn new() -> Self {
-        Runner::BeforeStart(TextManager::new_english(50))
+        Runner::BeforeStart(TextManagerLang::new())
     }
     pub fn run(mut self) -> io::Result<()> {
         enable_raw_mode()?;

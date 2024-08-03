@@ -3,9 +3,10 @@
 ## Core
 
 - [ ] Multiline view
-- [ ] Text randomization
+- [x] Text randomization
 - [x] Reset with Tab
 - [ ] End on timeout
+- [ ] Dynamic resize
 
 ## Additional
 
