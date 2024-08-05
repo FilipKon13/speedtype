@@ -129,6 +129,6 @@ mod test {
                 return;
             }
         }
-        assert!(false);
+        panic!();
     }
 }

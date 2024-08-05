@@ -1,4 +1,4 @@
-use runner::Runner;
+use runner::start_game;
 
 pub mod input;
 pub mod langs;
@@ -23,5 +23,5 @@ fn initialize_panic_handler() {
 
 fn main() -> std::io::Result<()> {
     initialize_panic_handler();
-    Runner::new().run()
+    start_game()
 }

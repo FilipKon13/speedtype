@@ -15,9 +15,9 @@ use ratatui::{
 };
 
 use crate::{
-    input::read_key,
+    input::{read_key, read_key_block},
     langs::WordSupplierRandomized,
-    layout::{get_testline_width, get_ui_live, get_ui_start},
+    layout::{get_testline_width, get_ui_live, get_ui_start, get_ui_welcome},
     text::TextManagerLang,
 };
 
@@ -63,41 +63,41 @@ impl TimeManager {
     }
 }
 
-enum RunnerAction {
+enum GameAction {
     Reset,
     Continue,
     End,
 }
 
-pub struct StartedRunner {
+pub struct StartedGame {
     time_manager: TimeManager,
     text_manager: TextManagerLang,
 }
 
-impl StartedRunner {
+impl StartedGame {
     fn new(text_manager: TextManagerLang) -> Self {
-        StartedRunner {
+        StartedGame {
             time_manager: TimeManager::new(SystemTime::now()),
             text_manager,
         }
     }
-    fn handle_events(&mut self) -> io::Result<RunnerAction> {
+    fn handle_events(&mut self) -> io::Result<GameAction> {
         let next_state = if let Some(key) = read_key()? {
             match key {
                 KeyCode::Char(u) => {
                     self.text_manager.handle_char(u);
-                    RunnerAction::Continue
+                    GameAction::Continue
                 }
                 KeyCode::Backspace => {
                     self.text_manager.handle_backspace();
-                    RunnerAction::Continue
+                    GameAction::Continue
                 }
-                KeyCode::Esc => RunnerAction::End,
-                KeyCode::Tab => RunnerAction::Reset,
-                _ => RunnerAction::Continue,
+                KeyCode::Esc => GameAction::End,
+                KeyCode::Tab => GameAction::Reset,
+                _ => GameAction::Continue,
             }
         } else {
-            RunnerAction::Continue
+            GameAction::Continue
         };
         Ok(next_state)
     }
@@ -115,75 +115,142 @@ impl StartedRunner {
     }
 }
 
-pub enum Runner {
+enum GameState {
     BeforeStart(TextManagerLang),
-    Started(StartedRunner),
+    Started(StartedGame),
     Done(),
 }
 
-impl Runner {
+impl GameState {
+    fn new() -> Self {
+        GameState::BeforeStart(TextManagerLang::new(
+            WordSupplierRandomized::new("english").unwrap(),
+        ))
+    }
     fn get_ui(&mut self, frame_size: Rect) -> Box<dyn FnOnce(&mut Frame)> {
         let width = get_testline_width(frame_size) as usize;
         match self {
-            Runner::BeforeStart(text_manager) => {
+            GameState::BeforeStart(text_manager) => {
                 Box::new(get_ui_start(text_manager.get_widget(width)))
             }
-            Runner::Started(runner) => Box::new(runner.get_ui(width)),
-            Runner::Done() => unreachable!(),
+            GameState::Started(runner) => Box::new(runner.get_ui(width)),
+            GameState::Done() => unreachable!(),
         }
     }
     fn handle_events(mut self) -> io::Result<Self> {
         let next_state = match self {
-            Runner::BeforeStart(mut text_manager) => {
+            GameState::BeforeStart(mut text_manager) => {
                 if let Ok(Some(key)) = read_key() {
                     match key {
                         KeyCode::Char(c) => {
                             text_manager.handle_char(c);
-                            Runner::Started(StartedRunner::new(text_manager))
+                            GameState::Started(StartedGame::new(text_manager))
                         }
-                        KeyCode::Esc => Runner::Done(),
-                        KeyCode::Tab => Runner::new(),
-                        _ => Runner::BeforeStart(text_manager),
+                        KeyCode::Esc => GameState::Done(),
+                        KeyCode::Tab => GameState::new(),
+                        _ => GameState::BeforeStart(text_manager),
                     }
                 } else {
-                    Runner::BeforeStart(text_manager)
+                    GameState::BeforeStart(text_manager)
                 }
             }
-            Runner::Started(ref mut runner) => match runner.handle_events()? {
-                RunnerAction::Continue => self,
-                RunnerAction::End => Runner::Done(),
-                RunnerAction::Reset => Runner::new(),
+            GameState::Started(ref mut runner) => match runner.handle_events()? {
+                GameAction::Continue => self,
+                GameAction::End => GameState::Done(),
+                GameAction::Reset => GameState::new(),
             },
-            Runner::Done() => unreachable!(),
+            GameState::Done() => unreachable!(),
         };
         Ok(next_state)
     }
-    pub fn new() -> Self {
-        Runner::BeforeStart(TextManagerLang::new(
-            WordSupplierRandomized::new("english").unwrap(),
-        ))
+}
+
+enum RunnerState {
+    StartScreen,
+    LiveGame(GameState),
+    EndGameScreen,
+    Done,
+}
+
+pub struct Runner<'a, B: Backend> {
+    terminal: &'a mut Terminal<B>,
+    state: RunnerState,
+}
+
+impl<'a, B: Backend> Runner<'a, B> {
+    fn get_ui(&mut self, frame_size: Rect) -> Box<dyn FnOnce(&mut Frame)> {
+        match self.state {
+            RunnerState::StartScreen | RunnerState::EndGameScreen => Box::new(get_ui_welcome()),
+            RunnerState::LiveGame(ref mut game_state) => game_state.get_ui(frame_size),
+            RunnerState::Done => unreachable!(),
+        }
+    }
+    fn handle_events(mut self) -> io::Result<Self> {
+        match self.state {
+            RunnerState::StartScreen => loop {
+                let key = read_key_block()?;
+                if key == KeyCode::Tab {
+                    self.state = RunnerState::LiveGame(GameState::new());
+                    break;
+                }
+            },
+            RunnerState::LiveGame(game_state) => {
+                let new_game_state = game_state.handle_events()?;
+                if let GameState::Done() = new_game_state {
+                    self.state = RunnerState::EndGameScreen;
+                } else {
+                    self.state = RunnerState::LiveGame(new_game_state);
+                }
+            }
+            RunnerState::EndGameScreen => loop {
+                let key = read_key_block()?;
+                if key == KeyCode::Tab {
+                    self.state = RunnerState::StartScreen;
+                    break;
+                }
+                if key == KeyCode::Esc {
+                    self.state = RunnerState::Done;
+                    break;
+                }
+            },
+            RunnerState::Done => unreachable!(),
+        }
+        Ok(self)
+    }
+    fn is_done(&self) -> bool {
+        if let RunnerState::Done = self.state {
+            true
+        } else {
+            false
+        }
+    }
+    pub fn new(terminal: &'a mut Terminal<B>) -> Self {
+        Runner {
+            terminal,
+            state: RunnerState::StartScreen,
+        }
     }
     pub fn run(mut self) -> io::Result<()> {
-        enable_raw_mode()?;
-        stdout().execute(EnterAlternateScreen)?;
-        let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-
         loop {
-            terminal.draw(self.get_ui(terminal.size()?))?;
+            let frame = self.get_ui(self.terminal.size()?);
+            self.terminal.draw(frame)?;
             self = self.handle_events()?;
-            if let Runner::Done() = self {
-                break;
+            if self.is_done() {
+                return Ok(());
             }
         }
-
-        disable_raw_mode()?;
-        stdout().execute(LeaveAlternateScreen)?;
-        Ok(())
     }
 }
 
-impl Default for Runner {
-    fn default() -> Self {
-        Self::new()
-    }
+pub fn start_game() -> io::Result<()> {
+    enable_raw_mode()?;
+    stdout().execute(EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+
+    let runner = Runner::new(&mut terminal);
+    runner.run()?;
+
+    disable_raw_mode()?;
+    stdout().execute(LeaveAlternateScreen)?;
+    Ok(())
 }

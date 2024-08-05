@@ -104,6 +104,17 @@ impl<'a> Widget for TestLine<'a> {
     }
 }
 
+pub fn get_ui_welcome() -> impl FnOnce(&mut Frame) {
+    |frame| {
+        let layout = get_layout(frame.size());
+        frame.render_widget(layout.main_block, frame.size());
+        frame.render_widget(
+            Line::raw("Press Tab to start").bold().centered(),
+            layout.gauge_area,
+        );
+    }
+}
+
 pub fn get_ui_live(
     wpm: u16,
     acc: u16,

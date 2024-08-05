@@ -22,3 +22,13 @@ pub fn read_key() -> std::io::Result<Option<KeyCode>> {
         }
     }
 }
+
+pub fn read_key_block() -> std::io::Result<KeyCode> {
+    loop {
+        if let Event::Key(key) = read()? {
+            if key.kind == KeyEventKind::Press {
+                return Ok(key.code);
+            }
+        }
+    }
+}
