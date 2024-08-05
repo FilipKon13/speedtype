@@ -5,6 +5,7 @@ pub mod langs;
 pub mod layout;
 pub mod runner;
 pub mod text;
+pub mod util;
 
 fn initialize_panic_handler() {
     std::panic::set_hook(Box::new(|panic_info| {

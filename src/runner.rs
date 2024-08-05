@@ -17,8 +17,9 @@ use ratatui::{
 use crate::{
     input::{read_key, read_key_block},
     langs::WordSupplierRandomized,
-    layout::{get_testline_width, get_ui_live, get_ui_start, get_ui_welcome},
+    layout::{get_testline_width, get_ui_game_end, get_ui_live, get_ui_start, get_ui_welcome},
     text::TextManagerLang,
+    util::wpm_from_letters,
 };
 
 struct TimeManager {
@@ -35,14 +36,18 @@ impl TimeManager {
             last_wpm: Cell::new(0),
         }
     }
+    fn time_expired(&self) -> bool {
+        if let Ok(duration) = self.start.elapsed() {
+            return duration > Duration::from_secs(60);
+        }
+        false
+    }
     fn milis_elapsed(&self) -> Result<u128, SystemTimeError> {
-        self.start.elapsed().map(|dur| dur.as_millis())
+        Ok(self.start.elapsed()?.as_millis())
     }
     fn current_wpm(&self, correct_letters: u16) -> u16 {
-        if let Ok(milis) = self.milis_elapsed() {
-            if milis != 0 {
-                return (correct_letters as u128 * 12000 / milis) as u16;
-            }
+        if let Ok(duration) = self.start.elapsed() {
+            return wpm_from_letters(correct_letters as usize, duration) as u16;
         }
         0
     }
@@ -66,7 +71,8 @@ impl TimeManager {
 enum GameAction {
     Reset,
     Continue,
-    End,
+    Quit,
+    End(GameStats),
 }
 
 pub struct StartedGame {
@@ -82,7 +88,13 @@ impl StartedGame {
         }
     }
     fn handle_events(&mut self) -> io::Result<GameAction> {
-        let next_state = if let Some(key) = read_key()? {
+        if self.time_manager.time_expired() {
+            return Ok(GameAction::End(GameStats {
+                wpm: wpm_from_letters(self.text_manager.correct(), Duration::from_secs(60)),
+                acc: self.text_manager.correct() as f64,
+            }));
+        }
+        let action = if let Some(key) = read_key()? {
             match key {
                 KeyCode::Char(u) => {
                     self.text_manager.handle_char(u);
@@ -92,14 +104,14 @@ impl StartedGame {
                     self.text_manager.handle_backspace();
                     GameAction::Continue
                 }
-                KeyCode::Esc => GameAction::End,
+                KeyCode::Esc => GameAction::Quit,
                 KeyCode::Tab => GameAction::Reset,
                 _ => GameAction::Continue,
             }
         } else {
             GameAction::Continue
         };
-        Ok(next_state)
+        Ok(action)
     }
     fn gauge_percent(&self) -> u16 {
         let res = self.time_manager.milis_elapsed().unwrap_or(0) * 100 / 60000;
@@ -115,10 +127,20 @@ impl StartedGame {
     }
 }
 
+struct GameStats {
+    wpm: f64,
+    acc: f64,
+}
+
 enum GameState {
     BeforeStart(TextManagerLang),
     Started(StartedGame),
-    Done(),
+}
+
+enum NextState {
+    GameState(GameState),
+    GameEnded(GameStats),
+    Exit,
 }
 
 impl GameState {
@@ -134,19 +156,18 @@ impl GameState {
                 Box::new(get_ui_start(text_manager.get_widget(width)))
             }
             GameState::Started(runner) => Box::new(runner.get_ui(width)),
-            GameState::Done() => unreachable!(),
         }
     }
-    fn handle_events(mut self) -> io::Result<Self> {
-        let next_state = match self {
+    fn handle_events(mut self) -> io::Result<NextState> {
+        let game_state = match self {
             GameState::BeforeStart(mut text_manager) => {
-                if let Ok(Some(key)) = read_key() {
+                if let Some(key) = read_key()? {
                     match key {
                         KeyCode::Char(c) => {
                             text_manager.handle_char(c);
                             GameState::Started(StartedGame::new(text_manager))
                         }
-                        KeyCode::Esc => GameState::Done(),
+                        KeyCode::Esc => return Ok(NextState::Exit),
                         KeyCode::Tab => GameState::new(),
                         _ => GameState::BeforeStart(text_manager),
                     }
@@ -156,20 +177,19 @@ impl GameState {
             }
             GameState::Started(ref mut runner) => match runner.handle_events()? {
                 GameAction::Continue => self,
-                GameAction::End => GameState::Done(),
+                GameAction::Quit => return Ok(NextState::Exit),
                 GameAction::Reset => GameState::new(),
+                GameAction::End(game_stats) => return Ok(NextState::GameEnded(game_stats)),
             },
-            GameState::Done() => unreachable!(),
         };
-        Ok(next_state)
+        Ok(NextState::GameState(game_state))
     }
 }
 
 enum RunnerState {
     StartScreen,
     LiveGame(GameState),
-    EndGameScreen,
-    Done,
+    EndGameScreen(GameStats),
 }
 
 pub struct Runner<'a, B: Backend> {
@@ -180,49 +200,36 @@ pub struct Runner<'a, B: Backend> {
 impl<'a, B: Backend> Runner<'a, B> {
     fn get_ui(&mut self, frame_size: Rect) -> Box<dyn FnOnce(&mut Frame)> {
         match self.state {
-            RunnerState::StartScreen | RunnerState::EndGameScreen => Box::new(get_ui_welcome()),
+            RunnerState::StartScreen => Box::new(get_ui_welcome()),
             RunnerState::LiveGame(ref mut game_state) => game_state.get_ui(frame_size),
-            RunnerState::Done => unreachable!(),
+            RunnerState::EndGameScreen(GameStats { wpm, acc }) => {
+                Box::new(get_ui_game_end(wpm, acc))
+            }
         }
     }
-    fn handle_events(mut self) -> io::Result<Self> {
+    fn handle_events(mut self) -> io::Result<Option<Self>> {
         match self.state {
-            RunnerState::StartScreen => loop {
+            RunnerState::StartScreen | RunnerState::EndGameScreen(_) => loop {
                 let key = read_key_block()?;
                 if key == KeyCode::Tab {
                     self.state = RunnerState::LiveGame(GameState::new());
                     break;
                 }
-            },
-            RunnerState::LiveGame(game_state) => {
-                let new_game_state = game_state.handle_events()?;
-                if let GameState::Done() = new_game_state {
-                    self.state = RunnerState::EndGameScreen;
-                } else {
-                    self.state = RunnerState::LiveGame(new_game_state);
-                }
-            }
-            RunnerState::EndGameScreen => loop {
-                let key = read_key_block()?;
-                if key == KeyCode::Tab {
-                    self.state = RunnerState::StartScreen;
-                    break;
-                }
                 if key == KeyCode::Esc {
-                    self.state = RunnerState::Done;
-                    break;
+                    return Ok(None);
                 }
             },
-            RunnerState::Done => unreachable!(),
+            RunnerState::LiveGame(game_state) => match game_state.handle_events()? {
+                NextState::GameState(game_state) => {
+                    self.state = RunnerState::LiveGame(game_state);
+                }
+                NextState::Exit => self.state = RunnerState::StartScreen,
+                NextState::GameEnded(game_stats) => {
+                    self.state = RunnerState::EndGameScreen(game_stats)
+                }
+            },
         }
-        Ok(self)
-    }
-    fn is_done(&self) -> bool {
-        if let RunnerState::Done = self.state {
-            true
-        } else {
-            false
-        }
+        Ok(Some(self))
     }
     pub fn new(terminal: &'a mut Terminal<B>) -> Self {
         Runner {
@@ -234,9 +241,9 @@ impl<'a, B: Backend> Runner<'a, B> {
         loop {
             let frame = self.get_ui(self.terminal.size()?);
             self.terminal.draw(frame)?;
-            self = self.handle_events()?;
-            if self.is_done() {
-                return Ok(());
+            match self.handle_events()? {
+                Some(s) => self = s,
+                None => return Ok(()),
             }
         }
     }

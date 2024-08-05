@@ -150,7 +150,7 @@ pub fn get_ui_live(
 }
 
 pub fn get_ui_start(text: TestLine) -> impl FnOnce(&mut Frame) + '_ {
-    move |frame: &mut Frame| {
+    move |frame| {
         let AppLayout {
             main_block,
             gauge_area: _,
@@ -161,5 +161,34 @@ pub fn get_ui_start(text: TestLine) -> impl FnOnce(&mut Frame) + '_ {
         let (x, y) = text.get_cursor(text_area);
         frame.render_widget(text, text_area);
         frame.set_cursor(x, y)
+    }
+}
+
+pub fn get_ui_game_end(wpm: f64, acc: f64) -> impl FnOnce(&mut Frame) {
+    move |frame| {
+        let AppLayout {
+            main_block,
+            gauge_area,
+            stat_area,
+            text_area,
+        } = get_layout(frame.size());
+        frame.render_widget(main_block, frame.size());
+        frame.render_widget(Line::raw("Time ended!").bold().centered(), gauge_area);
+        frame.render_widget(
+            Line::raw("Press Tab to restart or Esc to quit")
+                .bold()
+                .centered(),
+            stat_area,
+        );
+        let [top_line, bot_line] =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(text_area);
+        frame.render_widget(
+            Line::raw(format!("WPM: {}", wpm)).bold().centered(),
+            top_line,
+        );
+        frame.render_widget(
+            Line::raw(format!("Accuracy: {}", acc)).bold().centered(),
+            bot_line,
+        );
     }
 }

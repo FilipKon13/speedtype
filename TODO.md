@@ -6,12 +6,12 @@
 - [x] Text randomization
 - [x] Reset with Tab
 - [x] Fix returning to previous line
-- [ ] End on timeout
-- [ ] Dynamic resize
+- [x] End on timeout
+- [x] Dynamic resize
 
 ## Additional
 
-- [ ] Start page
+- [x] Start page
 - [ ] Game modes
 - [ ] Options
 - [ ] Statistics
