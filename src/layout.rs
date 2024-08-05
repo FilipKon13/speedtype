@@ -17,25 +17,25 @@ struct AppLayout<'a> {
     text_area: Rect,
 }
 
-fn get_layout<'a>(frame_size: Rect, text_line_width: u16) -> AppLayout<'a> {
+fn get_layout<'a>(frame_size: Rect) -> AppLayout<'a> {
     let main_block = Block::new()
         .borders(Borders::TOP)
         .title(block::Title::from("SpeedType").alignment(Alignment::Center));
-    let [gauge_area, _, stat_area, _, text_line, _] = Layout::vertical([
+    let [gauge_area, _, stat_area, _, text_lines, _] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Percentage(20),
-        Constraint::Length(1),
+        Constraint::Length(2),
         Constraint::Min(0),
     ])
     .areas(main_block.inner(frame_size));
     let [_, text_area, _] = Layout::horizontal([
         Constraint::Min(0),
-        Constraint::Length(text_line_width),
+        Constraint::Percentage(50),
         Constraint::Min(0),
     ])
-    .areas(text_line);
+    .areas(text_lines);
     AppLayout {
         main_block,
         gauge_area,
@@ -46,29 +46,34 @@ fn get_layout<'a>(frame_size: Rect, text_line_width: u16) -> AppLayout<'a> {
 
 pub struct TestLine<'a> {
     line: Line<'a>,
+    next_line: Line<'a>,
     cursor_ind: u16,
 }
 
 impl<'a> TestLine<'a> {
-    pub fn new(text: &[char], user_text: &[char]) -> Self {
+    pub fn new(line: &[char], next_line: &[char], user_text: &[char]) -> Self {
         TestLine {
-            line: Line::from_iter(
-                text.iter()
-                    .zip(user_text.iter().map(Some).chain(iter::repeat(None)))
-                    .map(|(c, u)| {
-                        let span = Span::raw(c.to_string());
-                        match u {
-                            Some(u) => {
-                                if c == u {
-                                    span.green()
-                                } else {
-                                    span.blue().on_red()
-                                }
+            line: line
+                .iter()
+                .zip(user_text.iter().map(Some).chain(iter::repeat(None)))
+                .map(|(c, u)| {
+                    let span = Span::raw(c.to_string());
+                    match u {
+                        Some(u) => {
+                            if c == u {
+                                span.green()
+                            } else {
+                                span.blue().on_red()
                             }
-                            None => span.blue(),
                         }
-                    }),
-            ),
+                        None => span.blue(),
+                    }
+                })
+                .collect(),
+            next_line: next_line
+                .iter()
+                .map(|c| Span::raw(c.to_string()).blue())
+                .collect(),
             cursor_ind: user_text.len() as u16,
         }
     }
@@ -83,20 +88,24 @@ impl<'a> Widget for TestLine<'a> {
     where
         Self: Sized,
     {
-        self.line.render(area, buf)
+        assert_eq!(area.height, 2);
+        let top = Rect { height: 1, ..area };
+        let bot = Rect {
+            height: 1,
+            y: area.y + 1,
+            ..area
+        };
+        self.line.render(top, buf);
+        self.next_line.render(bot, buf);
     }
 }
 
-pub trait TextWidgetGenerator {
-    fn get_widget<'a>(&self, width: u16) -> TestLine<'a>;
-}
-
-pub fn get_ui_live<Wg: TextWidgetGenerator>(
+pub fn get_ui_live(
     wpm: u16,
     acc: u16,
     gauge_percent: u16,
-    wid_gen: &Wg,
-) -> impl FnOnce(&mut Frame) {
+    text: TestLine,
+) -> impl FnOnce(&mut Frame) + '_ {
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(Color::Blue).bg(Color::Red))
         .percent(gauge_percent)
@@ -109,14 +118,13 @@ pub fn get_ui_live<Wg: TextWidgetGenerator>(
         acc.to_string().into(),
     ])
     .left_aligned();
-    let text = wid_gen.get_widget(50);
     move |frame| {
         let AppLayout {
             main_block,
             gauge_area,
             stat_area,
             text_area,
-        } = get_layout(frame.size(), text.line.width() as u16);
+        } = get_layout(frame.size());
         frame.render_widget(main_block, frame.size());
         frame.render_widget(gauge, gauge_area);
         frame.render_widget(stat_line, stat_area);
@@ -126,15 +134,14 @@ pub fn get_ui_live<Wg: TextWidgetGenerator>(
     }
 }
 
-pub fn get_ui_start<Wg: TextWidgetGenerator>(wid_gen: &Wg) -> impl FnOnce(&mut Frame) {
-    let text = wid_gen.get_widget(50);
+pub fn get_ui_start(text: TestLine) -> impl FnOnce(&mut Frame) + '_ {
     move |frame: &mut Frame| {
         let AppLayout {
             main_block,
             gauge_area: _,
             stat_area: _,
             text_area,
-        } = get_layout(frame.size(), text.line.width() as u16);
+        } = get_layout(frame.size());
         frame.render_widget(main_block, frame.size());
         let (x, y) = text.get_cursor(text_area);
         frame.render_widget(text, text_area);

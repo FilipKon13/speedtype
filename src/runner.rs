@@ -16,6 +16,7 @@ use ratatui::{
 
 use crate::{
     input::read_key,
+    langs::WordSupplierRandomized,
     layout::{get_ui_live, get_ui_start},
     text::TextManagerLang,
 };
@@ -104,12 +105,12 @@ impl StartedRunner {
         let res = self.time_manager.milis_elapsed().unwrap_or(0) * 100 / 60000;
         min(res, 100u128).try_into().unwrap()
     }
-    fn get_ui(&self) -> impl FnOnce(&mut Frame) {
+    fn get_ui(&mut self, width: u16) -> impl FnOnce(&mut Frame) {
         get_ui_live(
             self.time_manager.wpm(self.text_manager.correct() as u16),
             self.text_manager.correct() as u16,
             self.gauge_percent(),
-            &self.text_manager,
+            self.text_manager.get_widget(width),
         )
     }
 }
@@ -121,10 +122,13 @@ pub enum Runner {
 }
 
 impl Runner {
-    fn get_ui(&self) -> Box<dyn FnOnce(&mut Frame)> {
+    fn get_ui(&mut self, frame: Rect) -> Box<dyn FnOnce(&mut Frame)> {
+        let width = frame.width / 2;
         match self {
-            Runner::BeforeStart(text_manager) => Box::new(get_ui_start(text_manager)),
-            Runner::Started(runner) => Box::new(runner.get_ui()),
+            Runner::BeforeStart(text_manager) => {
+                Box::new(get_ui_start(text_manager.get_widget(width)))
+            }
+            Runner::Started(runner) => Box::new(runner.get_ui(width)),
             Runner::Done() => unreachable!(),
         }
     }
@@ -155,7 +159,9 @@ impl Runner {
         Ok(next_state)
     }
     pub fn new() -> Self {
-        Runner::BeforeStart(TextManagerLang::new())
+        Runner::BeforeStart(TextManagerLang::new(
+            WordSupplierRandomized::new("english").unwrap(),
+        ))
     }
     pub fn run(mut self) -> io::Result<()> {
         enable_raw_mode()?;
@@ -163,7 +169,7 @@ impl Runner {
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
         loop {
-            terminal.draw(self.get_ui())?;
+            terminal.draw(self.get_ui(terminal.size()?))?;
             self = self.handle_events()?;
             if let Runner::Done() = self {
                 break;

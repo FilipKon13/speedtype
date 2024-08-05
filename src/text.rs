@@ -1,6 +1,6 @@
 use crate::{
     langs::{WordSupplier, WordSupplierBasic, WordSupplierRandomized},
-    layout::{TestLine, TextWidgetGenerator},
+    layout::TestLine,
 };
 
 pub struct TextManager<Ws: WordSupplier> {
@@ -8,51 +8,46 @@ pub struct TextManager<Ws: WordSupplier> {
     text: Vec<char>,
     user_text: Vec<char>,
     correct: usize,
-}
-
-// TODO: should be removed later to fix hardcoded 50
-fn generate_text<Ws: WordSupplier>(ws: &mut Ws) -> Vec<char> {
-    let mut text = vec![];
-    loop {
-        let word = ws.get_word();
-        if text.len() + word.len() < 50 {
-            if !text.is_empty() {
-                text.push(' ')
-            }
-            text.extend(word);
-        } else {
-            return text;
-        }
-    }
-}
-
-impl TextManager<WordSupplierBasic> {
-    pub fn new(text: Vec<char>) -> Self {
-        TextManager::from_supplier(WordSupplierBasic::new(text))
-    }
-}
-
-impl TextManager<WordSupplierRandomized> {
-    pub fn new() -> Self {
-        TextManager::from_supplier(WordSupplierRandomized::new("english").unwrap())
-    }
-}
-
-impl<Ws: WordSupplier> TextWidgetGenerator for TextManager<Ws> {
-    fn get_widget<'a>(&self, _width: u16) -> TestLine<'a> {
-        TestLine::new(&self.text, &self.user_text)
-    }
+    begin_index: usize,
 }
 
 impl<Ws: WordSupplier> TextManager<Ws> {
-    fn from_supplier(mut word_supplier: Ws) -> Self {
-        let text = generate_text(&mut word_supplier);
+    pub fn new(word_supplier: Ws) -> Self {
         TextManager {
             word_supplier,
-            text,
+            text: vec![],
             user_text: vec![],
             correct: 0,
+            begin_index: 0,
         }
+    }
+    fn get_line_index(&mut self, begin: usize, width: usize) -> usize {
+        while begin + width > self.text.len() {
+            self.text.extend(self.word_supplier.get_word());
+            self.text.push(' ');
+        }
+        let mut res = begin + width;
+        while res > begin {
+            if *self.text.get(res - 1).unwrap() == ' ' {
+                break;
+            }
+            res -= 1;
+        }
+        res
+    }
+    // TODO: fix character removal
+    pub fn get_widget<'a>(&mut self, width: u16) -> TestLine<'a> {
+        let mut begin_next = self.begin_index;
+        while begin_next <= self.user_text.len() {
+            self.begin_index = begin_next;
+            begin_next = self.get_line_index(self.begin_index, width as usize);
+        }
+        let end_next = self.get_line_index(begin_next, width as usize);
+        TestLine::new(
+            &self.text[self.begin_index..begin_next],
+            &self.text[begin_next..end_next],
+            &self.user_text[self.begin_index..],
+        )
     }
     pub fn handle_char(&mut self, u: char) {
         if let Some(&c) = self.text.get(self.user_text.len()) {
@@ -73,12 +68,6 @@ impl<Ws: WordSupplier> TextManager<Ws> {
     }
     pub fn correct(&self) -> usize {
         self.correct
-    }
-}
-
-impl Default for TextManager<WordSupplierRandomized> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
