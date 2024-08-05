@@ -17,7 +17,7 @@ use ratatui::{
 use crate::{
     input::read_key,
     langs::WordSupplierRandomized,
-    layout::{get_ui_live, get_ui_start},
+    layout::{get_testline_width, get_ui_live, get_ui_start},
     text::TextManagerLang,
 };
 
@@ -122,8 +122,8 @@ pub enum Runner {
 }
 
 impl Runner {
-    fn get_ui(&mut self, frame: Rect) -> Box<dyn FnOnce(&mut Frame)> {
-        let width = frame.width / 2;
+    fn get_ui(&mut self, frame_size: Rect) -> Box<dyn FnOnce(&mut Frame)> {
+        let width = get_testline_width(frame_size);
         match self {
             Runner::BeforeStart(text_manager) => {
                 Box::new(get_ui_start(text_manager.get_widget(width)))

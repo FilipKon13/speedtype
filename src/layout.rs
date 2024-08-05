@@ -17,6 +17,10 @@ struct AppLayout<'a> {
     text_area: Rect,
 }
 
+pub fn get_testline_width(frame_size: Rect) -> u16 {
+    get_layout(frame_size).text_area.width
+}
+
 fn get_layout<'a>(frame_size: Rect) -> AppLayout<'a> {
     let main_block = Block::new()
         .borders(Borders::TOP)
@@ -32,7 +36,7 @@ fn get_layout<'a>(frame_size: Rect) -> AppLayout<'a> {
     .areas(main_block.inner(frame_size));
     let [_, text_area, _] = Layout::horizontal([
         Constraint::Min(0),
-        Constraint::Percentage(50),
+        Constraint::Percentage(80),
         Constraint::Min(0),
     ])
     .areas(text_lines);
