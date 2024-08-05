@@ -105,7 +105,7 @@ impl StartedRunner {
         let res = self.time_manager.milis_elapsed().unwrap_or(0) * 100 / 60000;
         min(res, 100u128).try_into().unwrap()
     }
-    fn get_ui(&mut self, width: u16) -> impl FnOnce(&mut Frame) {
+    fn get_ui(&mut self, width: usize) -> impl FnOnce(&mut Frame) {
         get_ui_live(
             self.time_manager.wpm(self.text_manager.correct() as u16),
             self.text_manager.correct() as u16,
@@ -123,7 +123,7 @@ pub enum Runner {
 
 impl Runner {
     fn get_ui(&mut self, frame_size: Rect) -> Box<dyn FnOnce(&mut Frame)> {
-        let width = get_testline_width(frame_size);
+        let width = get_testline_width(frame_size) as usize;
         match self {
             Runner::BeforeStart(text_manager) => {
                 Box::new(get_ui_start(text_manager.get_widget(width)))

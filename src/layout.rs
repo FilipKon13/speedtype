@@ -36,7 +36,7 @@ fn get_layout<'a>(frame_size: Rect) -> AppLayout<'a> {
     .areas(main_block.inner(frame_size));
     let [_, text_area, _] = Layout::horizontal([
         Constraint::Min(0),
-        Constraint::Percentage(80),
+        Constraint::Percentage(50),
         Constraint::Min(0),
     ])
     .areas(text_lines);

@@ -5,7 +5,7 @@
 - [x] Multiline view
 - [x] Text randomization
 - [x] Reset with Tab
-- [ ] Fix returning to previous line
+- [x] Fix returning to previous line
 - [ ] End on timeout
 - [ ] Dynamic resize
 
