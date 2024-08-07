@@ -1,11 +1,12 @@
-use runner::start_game;
-
+pub mod app;
+pub mod game;
 pub mod input;
 pub mod langs;
 pub mod layout;
-pub mod runner;
 pub mod text;
-pub mod util;
+pub mod timer;
+
+use app::start_game;
 
 fn initialize_panic_handler() {
     std::panic::set_hook(Box::new(|panic_info| {

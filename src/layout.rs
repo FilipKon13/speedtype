@@ -2,61 +2,48 @@ use std::iter;
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::*,
-    Frame,
 };
 
-struct AppLayout<'a> {
-    // main_block, gauge_area, stat_area, text_area
-    main_block: Block<'a>,
-    gauge_area: Rect,
-    stat_area: Rect,
-    text_area: Rect,
+pub struct AppLayout {
+    pub gauge_area: Rect,
+    pub stat_area: Rect,
+    pub text_area: Rect,
 }
 
-pub fn get_testline_width(frame_size: Rect) -> u16 {
-    get_layout(frame_size).text_area.width
-}
-
-fn get_layout<'a>(frame_size: Rect) -> AppLayout<'a> {
-    let main_block = Block::new()
-        .borders(Borders::TOP)
-        .title(block::Title::from("SpeedType").alignment(Alignment::Center));
-    let [gauge_area, _, stat_area, _, text_lines, _] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Percentage(20),
-        Constraint::Length(2),
-        Constraint::Min(0),
-    ])
-    .areas(main_block.inner(frame_size));
-    let [_, text_area, _] = Layout::horizontal([
-        Constraint::Min(0),
-        Constraint::Percentage(50),
-        Constraint::Min(0),
-    ])
-    .areas(text_lines);
-    AppLayout {
-        main_block,
-        gauge_area,
-        stat_area,
-        text_area,
+impl AppLayout {
+    pub fn new(frame_size: Rect) -> Self {
+        use Constraint::*;
+        let [gauge_area, _, stat_area, _, text_lines, _] = Layout::vertical([
+            Length(1),
+            Length(1),
+            Length(1),
+            Percentage(20),
+            Length(2),
+            Fill(1),
+        ])
+        .areas(frame_size);
+        let text_area =
+            Layout::horizontal([Fill(1), Percentage(50), Fill(1)]).areas::<3>(text_lines)[1];
+        AppLayout {
+            gauge_area,
+            stat_area,
+            text_area,
+        }
     }
 }
 
-pub struct TestLine<'a> {
+pub struct TestLines<'a> {
     line: Line<'a>,
     next_line: Line<'a>,
-    cursor_ind: u16,
 }
 
-impl<'a> TestLine<'a> {
+impl<'a> TestLines<'a> {
     pub fn new(line: &[char], next_line: &[char], user_text: &[char]) -> Self {
-        TestLine {
+        TestLines {
             line: line
                 .iter()
                 .zip(user_text.iter().map(Some).chain(iter::repeat(None)))
@@ -78,21 +65,15 @@ impl<'a> TestLine<'a> {
                 .iter()
                 .map(|c| Span::raw(c.to_string()).blue())
                 .collect(),
-            cursor_ind: user_text.len() as u16,
         }
-    }
-    /// use same `area` as in `Frame::render()`
-    fn get_cursor(&self, area: Rect) -> (u16, u16) {
-        (area.left() + self.cursor_ind, area.top())
     }
 }
 
-impl<'a> Widget for TestLine<'a> {
+impl<'a> Widget for TestLines<'a> {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
-        assert_eq!(area.height, 2);
         let top = Rect { height: 1, ..area };
         let bot = Rect {
             height: 1,
@@ -104,23 +85,67 @@ impl<'a> Widget for TestLine<'a> {
     }
 }
 
-pub fn get_ui_welcome() -> impl FnOnce(&mut Frame) {
-    |frame| {
-        let layout = get_layout(frame.size());
-        frame.render_widget(layout.main_block, frame.size());
-        frame.render_widget(
-            Line::raw("Press Tab to start").bold().centered(),
-            layout.gauge_area,
-        );
+pub struct StartScreen;
+
+impl Widget for &StartScreen {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        Line::raw("Press Tab to start")
+            .bold()
+            .centered()
+            .render(area, buf)
     }
 }
 
-pub fn get_ui_live(
-    wpm: u16,
-    acc: u16,
+pub struct GameStatsScreen {
+    wpm: f64,
+    acc: f64,
+}
+
+impl GameStatsScreen {
+    pub fn new(wpm: f64, acc: f64) -> Self {
+        GameStatsScreen { wpm, acc }
+    }
+}
+
+impl Widget for &GameStatsScreen {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        use Constraint::*;
+        let AppLayout {
+            gauge_area,
+            stat_area,
+            text_area,
+        } = AppLayout::new(area);
+        Line::raw("Time ended!")
+            .bold()
+            .centered()
+            .render(gauge_area, buf);
+        Line::raw("Press Tab to restart or Esc to quit")
+            .bold()
+            .centered()
+            .render(stat_area, buf);
+        let [top_line, bot_line] = Layout::vertical([Length(1), Length(1)]).areas(text_area);
+        Line::raw(format!("WPM: {}", self.wpm))
+            .bold()
+            .centered()
+            .render(top_line, buf);
+        Line::raw(format!("Accuracy: {}", self.acc))
+            .bold()
+            .centered()
+            .render(bot_line, buf);
+    }
+}
+
+pub fn get_ui_live_widgets<'a>(
+    wpm: usize,
+    acc: usize,
     gauge_percent: u16,
-    text: TestLine,
-) -> impl FnOnce(&mut Frame) + '_ {
+) -> (Gauge<'a>, Line<'a>) {
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(Color::Blue).bg(Color::Red))
         .percent(gauge_percent)
@@ -133,62 +158,5 @@ pub fn get_ui_live(
         acc.to_string().into(),
     ])
     .left_aligned();
-    move |frame| {
-        let AppLayout {
-            main_block,
-            gauge_area,
-            stat_area,
-            text_area,
-        } = get_layout(frame.size());
-        frame.render_widget(main_block, frame.size());
-        frame.render_widget(gauge, gauge_area);
-        frame.render_widget(stat_line, stat_area);
-        let (x, y) = text.get_cursor(text_area);
-        frame.render_widget(text, text_area);
-        frame.set_cursor(x, y);
-    }
-}
-
-pub fn get_ui_start(text: TestLine) -> impl FnOnce(&mut Frame) + '_ {
-    move |frame| {
-        let AppLayout {
-            main_block,
-            gauge_area: _,
-            stat_area: _,
-            text_area,
-        } = get_layout(frame.size());
-        frame.render_widget(main_block, frame.size());
-        let (x, y) = text.get_cursor(text_area);
-        frame.render_widget(text, text_area);
-        frame.set_cursor(x, y)
-    }
-}
-
-pub fn get_ui_game_end(wpm: f64, acc: f64) -> impl FnOnce(&mut Frame) {
-    move |frame| {
-        let AppLayout {
-            main_block,
-            gauge_area,
-            stat_area,
-            text_area,
-        } = get_layout(frame.size());
-        frame.render_widget(main_block, frame.size());
-        frame.render_widget(Line::raw("Time ended!").bold().centered(), gauge_area);
-        frame.render_widget(
-            Line::raw("Press Tab to restart or Esc to quit")
-                .bold()
-                .centered(),
-            stat_area,
-        );
-        let [top_line, bot_line] =
-            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(text_area);
-        frame.render_widget(
-            Line::raw(format!("WPM: {}", wpm)).bold().centered(),
-            top_line,
-        );
-        frame.render_widget(
-            Line::raw(format!("Accuracy: {}", acc)).bold().centered(),
-            bot_line,
-        );
-    }
+    (gauge, stat_line)
 }

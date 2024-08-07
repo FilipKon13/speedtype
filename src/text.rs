@@ -1,6 +1,9 @@
+use ratatui::prelude::*;
+use ratatui::widgets::StatefulWidget;
+
 use crate::{
     langs::{WordSupplier, WordSupplierBasic, WordSupplierRandomized},
-    layout::TestLine,
+    layout::TestLines,
 };
 
 pub struct TextManager<Ws: WordSupplier> {
@@ -61,14 +64,6 @@ impl<Ws: WordSupplier> TextManager<Ws> {
             user_text: &self.user_text[start..],
         }
     }
-    pub fn get_widget<'a>(&mut self, width: usize) -> TestLine<'a> {
-        let WidgetData {
-            line,
-            next_line,
-            user_text,
-        } = self.widget_data(width);
-        TestLine::new(line, next_line, user_text)
-    }
     pub fn handle_char(&mut self, u: char) {
         if let Some(&c) = self.text.get(self.user_text.len()) {
             self.user_text.push(u);
@@ -98,6 +93,20 @@ struct WidgetData<'a> {
     line: &'a [char],
     next_line: &'a [char],
     user_text: &'a [char],
+}
+
+impl<Ws: WordSupplier> StatefulWidget for &mut TextManager<Ws> {
+    type State = Option<(u16, u16)>;
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let WidgetData {
+            line,
+            next_line,
+            user_text,
+        } = self.widget_data(area.width as usize);
+        let text = TestLines::new(line, next_line, user_text);
+        text.render(area, buf);
+        *state = Some((area.left() + user_text.len() as u16, area.top()));
+    }
 }
 
 #[cfg(test)]

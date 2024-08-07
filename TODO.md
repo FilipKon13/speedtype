@@ -12,6 +12,7 @@
 ## Additional
 
 - [x] Start page
+- [ ] Choose time limit
 - [ ] Game modes
 - [ ] Options
 - [ ] Statistics
