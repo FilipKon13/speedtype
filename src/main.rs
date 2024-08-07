@@ -5,6 +5,7 @@ pub mod langs;
 pub mod layout;
 pub mod text;
 pub mod timer;
+pub mod welcome;
 
 use app::start_game;
 

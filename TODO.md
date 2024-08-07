@@ -12,10 +12,11 @@
 ## Additional
 
 - [x] Start page
-- [ ] Choose time limit
+- [x] Choose time limit
 - [ ] Game modes
-- [ ] Options
+- [x] Options
 - [ ] Statistics
+- [ ] Pass options by reference
 
 ## Repo
 

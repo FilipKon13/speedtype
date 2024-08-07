@@ -77,20 +77,6 @@ impl<'a> Widget for TestLines<'a> {
     }
 }
 
-pub struct StartScreen;
-
-impl Widget for &StartScreen {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
-        Line::raw("Press Tab to start")
-            .bold()
-            .centered()
-            .render(area, buf)
-    }
-}
-
 pub struct GameStatsScreen {
     wpm: f64,
     acc: f64,

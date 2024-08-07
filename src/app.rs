@@ -9,7 +9,8 @@ use ratatui::{
 use crate::{
     game::{GameStats, LiveGame, NextState},
     input::read_key_block,
-    layout::{GameStatsScreen, StartScreen},
+    layout::GameStatsScreen,
+    welcome::{StartScreen, StartScreenAction},
 };
 
 pub fn start_game() -> io::Result<()> {
@@ -28,6 +29,11 @@ pub fn start_game() -> io::Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
+pub struct GameOptions {
+    pub time: u32,
+}
+
 enum AppState {
     StartScreen(StartScreen),
     LiveGame(LiveGame),
@@ -35,34 +41,49 @@ enum AppState {
 }
 
 pub struct App {
+    options: GameOptions,
     state: AppState,
 }
 
 impl App {
-    fn handle_events(self) -> io::Result<Option<Self>> {
+    fn handle_events(mut self) -> io::Result<Option<Self>> {
         let state = match self.state {
-            AppState::StartScreen(_) | AppState::EndGameScreen(_) => loop {
+            AppState::StartScreen(ref mut start_screen) => match start_screen.handle_events() {
+                StartScreenAction::Continue => {
+                    self.options = start_screen.get_options();
+                    self.state
+                }
+                StartScreenAction::Quit => return Ok(None),
+                StartScreenAction::StartGame => {
+                    self.options = start_screen.get_options();
+                    AppState::LiveGame(LiveGame::new(self.options.clone()))
+                }
+            },
+            AppState::LiveGame(live_game) => match live_game.handle_events()? {
+                NextState::LiveGame(live_game) => AppState::LiveGame(live_game),
+                NextState::Exit => return Ok(Some(App::new())),
+                NextState::GameEnded(GameStats { wpm, acc }) => {
+                    AppState::EndGameScreen(GameStatsScreen::new(wpm, acc))
+                }
+                NextState::Restart => AppState::LiveGame(LiveGame::new(self.options.clone())),
+            },
+            AppState::EndGameScreen(_) => loop {
                 let key = read_key_block()?;
                 if key == KeyCode::Tab {
-                    break AppState::LiveGame(LiveGame::new());
+                    break AppState::LiveGame(LiveGame::new(self.options.clone()));
                 }
                 if key == KeyCode::Esc {
                     return Ok(None);
                 }
             },
-            AppState::LiveGame(live_game) => match live_game.handle_events()? {
-                NextState::LiveGame(live_game) => AppState::LiveGame(live_game),
-                NextState::Exit => AppState::StartScreen(StartScreen {}),
-                NextState::GameEnded(GameStats { wpm, acc }) => {
-                    AppState::EndGameScreen(GameStatsScreen::new(wpm, acc))
-                }
-            },
         };
-        Ok(Some(App { state }))
+        Ok(Some(App { state, ..self }))
     }
     pub fn new() -> Self {
+        let options = GameOptions { time: 60 };
         App {
-            state: AppState::StartScreen(StartScreen {}),
+            options: options.clone(),
+            state: AppState::StartScreen(StartScreen::new(options)),
         }
     }
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {

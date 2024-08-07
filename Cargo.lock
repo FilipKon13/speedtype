@@ -477,6 +477,7 @@ dependencies = [
  "better-panic",
  "rand",
  "ratatui",
+ "tui-menu",
 ]
 
 [[package]]
@@ -526,6 +527,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tui-menu"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9a8b7671c081d820d8e843140f39e6b8f612815542bb142d957021fc5ee382a"
+dependencies = [
+ "ratatui",
 ]
 
 [[package]]
