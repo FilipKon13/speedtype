@@ -1,16 +1,10 @@
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::KeyCode,
-    layout::Rect,
-    widgets::{StatefulWidget, Widget},
-};
+use ratatui::crossterm::event::KeyCode;
 use std::cmp::min;
 use std::time::Duration;
 
 use crate::{
     input::read_key,
     langs::WordSupplierRandomized,
-    layout::{get_ui_live_widgets, AppLayout},
     text::TextManagerLang,
     timer::{wpm_from_letters, TimeManager},
 };
@@ -128,28 +122,40 @@ impl LiveGame {
     }
 }
 
-impl StatefulWidget for &mut LiveGame {
-    type State = Option<(u16, u16)>;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let AppLayout {
-            gauge_area,
-            stat_area,
-            text_area,
-        } = AppLayout::new(area);
+mod widget {
+    use ratatui::{
+        buffer::Buffer,
+        layout::Rect,
+        widgets::{StatefulWidget, Widget},
+    };
 
-        let text_manager = match &mut self.state {
-            GameState::BeforeStart(text_manager) => text_manager,
-            GameState::Started(started_game) => &mut started_game.text_manager,
-        };
-        text_manager.render(text_area, buf, state);
+    use crate::layout::{get_ui_live_widgets, AppLayout};
 
-        if let GameState::Started(started_game) = &mut self.state {
-            let correct = started_game.text_manager.correct();
-            let wpm = started_game.time_manager.wpm(correct);
-            let gauge_percent = started_game.gauge_percent();
-            let (gauge, stat_line) = get_ui_live_widgets(wpm, correct, gauge_percent);
-            gauge.render(gauge_area, buf);
-            stat_line.render(stat_area, buf);
+    use super::{GameState, LiveGame};
+
+    impl StatefulWidget for &mut LiveGame {
+        type State = Option<(u16, u16)>;
+        fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+            let AppLayout {
+                gauge_area,
+                stat_area,
+                text_area,
+            } = AppLayout::new(area);
+
+            let text_manager = match &mut self.state {
+                GameState::BeforeStart(text_manager) => text_manager,
+                GameState::Started(started_game) => &mut started_game.text_manager,
+            };
+            text_manager.render(text_area, buf, state);
+
+            if let GameState::Started(started_game) = &mut self.state {
+                let correct = started_game.text_manager.correct();
+                let wpm = started_game.time_manager.wpm(correct);
+                let gauge_percent = started_game.gauge_percent();
+                let (gauge, stat_line) = get_ui_live_widgets(wpm, correct, gauge_percent);
+                gauge.render(gauge_area, buf);
+                stat_line.render(stat_area, buf);
+            }
         }
     }
 }

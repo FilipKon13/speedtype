@@ -1,10 +1,4 @@
-use ratatui::prelude::*;
-use ratatui::widgets::StatefulWidget;
-
-use crate::{
-    langs::{WordSupplier, WordSupplierBasic, WordSupplierRandomized},
-    layout::TestLines,
-};
+use crate::langs::{WordSupplier, WordSupplierBasic, WordSupplierRandomized};
 
 pub struct TextManager<Ws: WordSupplier> {
     word_supplier: Ws,
@@ -95,17 +89,29 @@ struct WidgetData<'a> {
     user_text: &'a [char],
 }
 
-impl<Ws: WordSupplier> StatefulWidget for &mut TextManager<Ws> {
-    type State = Option<(u16, u16)>;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let WidgetData {
-            line,
-            next_line,
-            user_text,
-        } = self.widget_data(area.width as usize);
-        let text = TestLines::new(line, next_line, user_text);
-        text.render(area, buf);
-        *state = Some((area.left() + user_text.len() as u16, area.top()));
+mod widget {
+    use ratatui::{
+        buffer::Buffer,
+        layout::Rect,
+        widgets::{StatefulWidget, Widget},
+    };
+
+    use crate::{langs::WordSupplier, layout::TestLines};
+
+    use super::{TextManager, WidgetData};
+
+    impl<Ws: WordSupplier> StatefulWidget for &mut TextManager<Ws> {
+        type State = Option<(u16, u16)>;
+        fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+            let WidgetData {
+                line,
+                next_line,
+                user_text,
+            } = self.widget_data(area.width as usize);
+            let text = TestLines::new(line, next_line, user_text);
+            text.render(area, buf);
+            *state = Some((area.left() + user_text.len() as u16, area.top()));
+        }
     }
 }
 

@@ -1,10 +1,8 @@
 use std::io::{self, stdout};
 
 use ratatui::{
-    buffer::Buffer,
     crossterm::event::KeyCode,
-    layout::{Alignment, Rect},
-    prelude::*,
+    prelude::{Backend, CrosstermBackend},
     Frame, Terminal,
 };
 
@@ -85,23 +83,33 @@ impl App {
     }
 }
 
-impl StatefulWidget for &mut App {
-    type State = Option<(u16, u16)>;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        use ratatui::widgets::*;
+mod widget {
+    use ratatui::{
+        buffer::Buffer,
+        layout::{Alignment, Rect},
+        widgets::StatefulWidget,
+    };
 
-        let main_block = Block::new()
-            .borders(Borders::TOP)
-            .title(block::Title::from("SpeedType").alignment(Alignment::Center));
+    use super::{App, AppState};
 
-        let inner_area = main_block.inner(area);
+    impl StatefulWidget for &mut App {
+        type State = Option<(u16, u16)>;
+        fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+            use ratatui::widgets::*;
 
-        main_block.render(area, buf);
+            let main_block = Block::new()
+                .borders(Borders::TOP)
+                .title(block::Title::from("SpeedType").alignment(Alignment::Center));
 
-        match &mut self.state {
-            AppState::StartScreen(start_screen) => start_screen.render(inner_area, buf),
-            AppState::EndGameScreen(game_stats) => game_stats.render(inner_area, buf),
-            AppState::LiveGame(live_game) => live_game.render(inner_area, buf, state),
+            let inner_area = main_block.inner(area);
+
+            main_block.render(area, buf);
+
+            match &mut self.state {
+                AppState::StartScreen(start_screen) => start_screen.render(inner_area, buf),
+                AppState::EndGameScreen(game_stats) => game_stats.render(inner_area, buf),
+                AppState::LiveGame(live_game) => live_game.render(inner_area, buf, state),
+            }
         }
     }
 }

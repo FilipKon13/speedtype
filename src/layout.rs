@@ -1,12 +1,4 @@
-use std::iter;
-
-use ratatui::{
-    buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Style, Stylize},
-    text::{Line, Span},
-    widgets::*,
-};
+use ratatui::{prelude::*, widgets::*};
 
 pub struct AppLayout {
     pub gauge_area: Rect,
@@ -46,7 +38,7 @@ impl<'a> TestLines<'a> {
         TestLines {
             line: line
                 .iter()
-                .zip(user_text.iter().map(Some).chain(iter::repeat(None)))
+                .zip(user_text.iter().map(Some).chain(std::iter::repeat(None)))
                 .map(|(c, u)| {
                     let span = Span::raw(c.to_string());
                     match u {
