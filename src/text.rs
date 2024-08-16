@@ -34,28 +34,37 @@ impl<Ws: WordSupplier> TextManager<Ws> {
         ind
     }
     fn widget_data(&mut self, width: usize) -> WidgetData {
-        let mut begin = 0usize;
-        let mut end = self.next_line_begin(0, width);
-        if begin == end {
+        let mut begin = [0usize; 4];
+        begin[1] = self.next_line_begin(begin[0], width);
+        if begin[0] == begin[1] {
+            return WidgetData::empty();
+        }
+        begin[2] = self.next_line_begin(begin[1], width);
+        begin[3] = self.next_line_begin(begin[2], width);
+        let ind = self.user_text.len();
+        if self.begin_of_word(begin[0]) <= ind && ind < self.begin_of_word(begin[1]) {
+            let inds = begin.map(|i| self.begin_of_word(i));
             return WidgetData {
-                line: &[],
-                next_line: &[],
+                prev_line: &self.text[inds[0]..inds[1]],
+                line: &self.text[inds[1]..inds[2]],
+                next_line: &self.text[inds[2]..inds[3]],
+                prev_user_text: &self.user_text[inds[0]..],
                 user_text: &[],
             };
         }
-        let ind = self.user_text.len();
-        while !(self.begin_of_word(begin) <= ind && ind < self.begin_of_word(end)) {
-            begin = end;
-            end = self.next_line_begin(end, width);
+        while !(self.begin_of_word(begin[1]) <= ind && ind < self.begin_of_word(begin[2])) {
+            begin[0] = begin[1];
+            begin[1] = begin[2];
+            begin[2] = begin[3];
+            begin[3] = self.next_line_begin(begin[3], width);
         }
-        let next_end = self.next_line_begin(end, width);
-        let start = self.begin_of_word(begin);
-        let mid = self.begin_of_word(end);
-        let finish = self.begin_of_word(next_end);
+        let inds = begin.map(|i| self.begin_of_word(i));
         WidgetData {
-            line: &self.text[start..mid],
-            next_line: &self.text[mid..finish],
-            user_text: &self.user_text[start..],
+            prev_line: &self.text[inds[0]..inds[1]],
+            line: &self.text[inds[1]..inds[2]],
+            next_line: &self.text[inds[2]..inds[3]],
+            prev_user_text: &self.user_text[inds[0]..inds[1]],
+            user_text: &self.user_text[inds[1]..],
         }
     }
     pub fn handle_char(&mut self, u: char) {
@@ -84,9 +93,23 @@ pub type TextManagerBasic = TextManager<WordSupplierBasic>;
 pub type TextManagerLang = TextManager<WordSupplierRandomized>;
 
 struct WidgetData<'a> {
+    prev_line: &'a [char],
     line: &'a [char],
     next_line: &'a [char],
+    prev_user_text: &'a [char],
     user_text: &'a [char],
+}
+
+impl<'a> WidgetData<'a> {
+    fn empty() -> Self {
+        WidgetData {
+            prev_line: &[],
+            line: &[],
+            next_line: &[],
+            prev_user_text: &[],
+            user_text: &[],
+        }
+    }
 }
 
 mod widget {
@@ -104,13 +127,20 @@ mod widget {
         type State = Option<(u16, u16)>;
         fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
             let WidgetData {
+                prev_line,
                 line,
                 next_line,
+                prev_user_text,
                 user_text,
             } = self.widget_data(area.width as usize);
-            let text = TestLines::new(line, next_line, user_text);
+            let text = TestLines::new(prev_line, line, next_line, prev_user_text, user_text);
             text.render(area, buf);
-            *state = Some((area.left() + user_text.len() as u16, area.top()));
+            let cursor = if user_text.is_empty() && prev_user_text.len() < prev_line.len() {
+                (area.left() + prev_user_text.len() as u16, area.top())
+            } else {
+                (area.left() + user_text.len() as u16, area.top() + 1)
+            };
+            *state = Some(cursor);
         }
     }
 }
@@ -123,15 +153,15 @@ mod test {
     fn get_widget_correct_width() {
         let mut text_manager = TextManager::new(WordSupplierRandomized::new("english").unwrap());
         for width in 1..1000 {
-            let line = text_manager.widget_data(width).line;
+            let line = text_manager.widget_data(width).prev_line;
             assert!(line.len() <= width);
         }
     }
 
     #[test]
-    fn short_width() {
+    fn too_short_width() {
         let mut text_manager = TextManager::new(WordSupplierRandomized::new("english").unwrap());
-        let line = text_manager.widget_data(1).line;
+        let line = text_manager.widget_data(1).prev_line;
         assert!(line.is_empty());
     }
 
@@ -139,7 +169,7 @@ mod test {
     fn max_width_achieved() {
         let mut text_manager = TextManager::new(WordSupplierRandomized::new("english").unwrap());
         for width in 1..1000 {
-            let line = text_manager.widget_data(width).line;
+            let line = text_manager.widget_data(width).prev_line;
             if line.len() == width {
                 return;
             }

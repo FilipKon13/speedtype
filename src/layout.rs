@@ -29,34 +29,43 @@ impl AppLayout {
 }
 
 pub struct TestLines<'a> {
+    prev_line: Line<'a>,
     line: Line<'a>,
     next_line: Line<'a>,
 }
 
 impl<'a> TestLines<'a> {
-    pub fn new(line: &[char], next_line: &[char], user_text: &[char]) -> Self {
-        TestLines {
-            line: line
-                .iter()
-                .zip(user_text.iter().map(Some).chain(std::iter::repeat(None)))
-                .map(|(c, u)| {
-                    let span = Span::raw(c.to_string());
-                    match u {
-                        Some(u) => {
-                            if c == u {
-                                span.green()
-                            } else {
-                                span.blue().on_red()
-                            }
+    fn char_to_line(test_line: &[char], user_line: &[char]) -> Line<'a> {
+        test_line
+            .iter()
+            .zip(user_line.iter().map(Some).chain(std::iter::repeat(None)))
+            .map(|(c, u)| {
+                let span = Span::raw(c.to_string());
+                match u {
+                    Some(u) => {
+                        if c == u {
+                            span.green()
+                        } else {
+                            span.blue().on_red()
                         }
-                        None => span.blue(),
                     }
-                })
-                .collect(),
-            next_line: next_line
-                .iter()
-                .map(|c| Span::raw(c.to_string()).blue())
-                .collect(),
+                    None => span.blue(),
+                }
+            })
+            .collect()
+    }
+
+    pub fn new(
+        prev_line: &[char],
+        line: &[char],
+        next_line: &[char],
+        prev_user_text: &[char],
+        user_text: &[char],
+    ) -> Self {
+        TestLines {
+            prev_line: TestLines::char_to_line(prev_line, prev_user_text),
+            line: TestLines::char_to_line(line, user_text),
+            next_line: TestLines::char_to_line(next_line, &[]),
         }
     }
 }
@@ -67,12 +76,18 @@ impl<'a> Widget for TestLines<'a> {
         Self: Sized,
     {
         let top = Rect { height: 1, ..area };
-        let bot = Rect {
+        let mid = Rect {
             height: 1,
             y: area.y + 1,
             ..area
         };
-        self.line.render(top, buf);
+        let bot = Rect {
+            height: 1,
+            y: area.y + 2,
+            ..area
+        };
+        self.prev_line.render(top, buf);
+        self.line.render(mid, buf);
         self.next_line.render(bot, buf);
     }
 }

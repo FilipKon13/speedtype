@@ -24,6 +24,8 @@ pub fn start_game() -> io::Result<()> {
     let mut game_options = GameOptions { time: 60 };
     App::new(&mut game_options).run(&mut terminal)?;
 
+    // TODO: save options
+
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
     Ok(())
