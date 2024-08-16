@@ -16,7 +16,7 @@
 - [ ] Game modes
 - [x] Options
 - [ ] Statistics
-- [ ] Pass options by reference
+- [x] Pass options by reference
 
 ## Repo
 

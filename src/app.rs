@@ -21,15 +21,14 @@ pub fn start_game() -> io::Result<()> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-
-    App::new().run(&mut terminal)?;
+    let mut game_options = GameOptions { time: 60 };
+    App::new(&mut game_options).run(&mut terminal)?;
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
     Ok(())
 }
 
-#[derive(Clone)]
 pub struct GameOptions {
     pub time: u32,
 }
@@ -40,37 +39,37 @@ enum AppState {
     EndGameScreen(GameStatsScreen),
 }
 
-pub struct App {
-    options: GameOptions,
+pub struct App<'a> {
+    options: &'a mut GameOptions,
     state: AppState,
 }
 
-impl App {
+impl<'a> App<'a> {
     fn handle_events(mut self) -> io::Result<Option<Self>> {
         let state = match self.state {
             AppState::StartScreen(ref mut start_screen) => match start_screen.handle_events() {
-                StartScreenAction::Continue => {
-                    self.options = start_screen.get_options();
-                    self.state
-                }
+                StartScreenAction::Continue => self.state,
                 StartScreenAction::Quit => return Ok(None),
                 StartScreenAction::StartGame => {
-                    self.options = start_screen.get_options();
-                    AppState::LiveGame(LiveGame::new(self.options.clone()))
+                    AppState::LiveGame(LiveGame::new(self.options.time))
+                }
+                StartScreenAction::ChangeTime(time) => {
+                    self.options.time = time;
+                    self.state
                 }
             },
             AppState::LiveGame(live_game) => match live_game.handle_events()? {
                 NextState::LiveGame(live_game) => AppState::LiveGame(live_game),
-                NextState::Exit => return Ok(Some(App::new())),
+                NextState::Exit => AppState::StartScreen(StartScreen::new()),
                 NextState::GameEnded(GameStats { wpm, acc }) => {
                     AppState::EndGameScreen(GameStatsScreen::new(wpm, acc))
                 }
-                NextState::Restart => AppState::LiveGame(LiveGame::new(self.options.clone())),
+                NextState::Restart => AppState::LiveGame(LiveGame::new(self.options.time)),
             },
             AppState::EndGameScreen(_) => loop {
                 let key = read_key_block()?;
                 if key == KeyCode::Tab {
-                    break AppState::LiveGame(LiveGame::new(self.options.clone()));
+                    break AppState::LiveGame(LiveGame::new(self.options.time));
                 }
                 if key == KeyCode::Esc {
                     return Ok(None);
@@ -79,11 +78,10 @@ impl App {
         };
         Ok(Some(App { state, ..self }))
     }
-    pub fn new() -> Self {
-        let options = GameOptions { time: 60 };
+    pub fn new(options: &'a mut GameOptions) -> Self {
         App {
-            options: options.clone(),
-            state: AppState::StartScreen(StartScreen::new(options)),
+            options,
+            state: AppState::StartScreen(StartScreen::new()),
         }
     }
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
@@ -113,7 +111,7 @@ mod widget {
 
     use super::{App, AppState};
 
-    impl StatefulWidget for &mut App {
+    impl<'a> StatefulWidget for &mut App<'a> {
         type State = Option<(u16, u16)>;
         fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
             use ratatui::widgets::*;
@@ -127,7 +125,9 @@ mod widget {
             main_block.render(area, buf);
 
             match &mut self.state {
-                AppState::StartScreen(start_screen) => start_screen.render(inner_area, buf),
+                AppState::StartScreen(start_screen) => {
+                    start_screen.render(inner_area, buf, self.options)
+                }
                 AppState::EndGameScreen(game_stats) => game_stats.render(inner_area, buf),
                 AppState::LiveGame(live_game) => live_game.render(inner_area, buf, state),
             }

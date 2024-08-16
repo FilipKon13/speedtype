@@ -2,7 +2,6 @@ use ratatui::crossterm::event::KeyCode;
 use std::time::Duration;
 
 use crate::{
-    app::GameOptions,
     input::read_key,
     langs::WordSupplierRandomized,
     text::TextManagerLang,
@@ -61,7 +60,7 @@ impl StartedGame {
 
 struct BeforeStartedGame {
     text_manager: TextManagerLang,
-    options: GameOptions,
+    duration: Duration,
 }
 
 enum GameState {
@@ -70,10 +69,10 @@ enum GameState {
 }
 
 impl GameState {
-    fn new(options: GameOptions) -> Self {
+    fn new(duration: Duration) -> Self {
         GameState::BeforeStart(BeforeStartedGame {
             text_manager: TextManagerLang::new(WordSupplierRandomized::new("english").unwrap()),
-            options,
+            duration,
         })
     }
 }
@@ -95,9 +94,9 @@ pub enum NextState {
 }
 
 impl LiveGame {
-    pub fn new(options: GameOptions) -> Self {
+    pub fn new(duration: u32) -> Self {
         LiveGame {
-            state: GameState::new(options),
+            state: GameState::new(Duration::from_secs(duration as u64)),
         }
     }
     pub fn handle_events(mut self) -> std::io::Result<NextState> {
@@ -107,10 +106,7 @@ impl LiveGame {
                     match key {
                         KeyCode::Char(c) => {
                             game.text_manager.handle_char(c);
-                            GameState::Started(StartedGame::new(
-                                game.text_manager,
-                                Duration::from_secs(game.options.time as u64),
-                            ))
+                            GameState::Started(StartedGame::new(game.text_manager, game.duration))
                         }
                         KeyCode::Esc => return Ok(NextState::Exit),
                         KeyCode::Tab => return Ok(NextState::Restart),

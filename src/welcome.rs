@@ -1,21 +1,20 @@
-use crate::{app::GameOptions, input::read_key_block};
+use crate::input::read_key_block;
 use tui_menu::{MenuEvent, MenuItem, MenuState};
 
 pub enum StartScreenAction {
+    ChangeTime(u32),
     Continue,
     Quit,
     StartGame,
 }
 
 pub struct StartScreen {
-    options: GameOptions,
     menu: MenuState<u32>,
 }
 
 impl StartScreen {
-    pub fn new(options: GameOptions) -> Self {
+    pub fn new() -> Self {
         StartScreen {
-            options,
             menu: MenuState::<u32>::new(vec![MenuItem::group(
                 "Time",
                 vec![
@@ -25,9 +24,6 @@ impl StartScreen {
                 ],
             )]),
         }
-    }
-    pub fn get_options(&self) -> GameOptions {
-        self.options.clone()
     }
     pub fn handle_events(&mut self) -> StartScreenAction {
         use ratatui::crossterm::event::KeyCode::*;
@@ -52,15 +48,23 @@ impl StartScreen {
             }
         }
 
+        let mut action = Continue;
+
         for e in self.menu.drain_events() {
             match e {
                 MenuEvent::Selected(time) => {
-                    self.options.time = time;
                     self.menu.reset();
+                    action = ChangeTime(time);
                 }
             }
         }
-        Continue
+        action
+    }
+}
+
+impl Default for StartScreen {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -68,13 +72,13 @@ mod widget {
     use ratatui::prelude::*;
     use tui_menu::Menu;
 
+    use crate::app::GameOptions;
+
     use super::StartScreen;
 
-    impl Widget for &mut StartScreen {
-        fn render(self, area: Rect, buf: &mut Buffer)
-        where
-            Self: Sized,
-        {
+    impl StatefulWidget for &mut StartScreen {
+        type State = GameOptions;
+        fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
             use Constraint::*;
             let [top, _, bot] = Layout::vertical([Length(1), Percentage(20), Fill(1)]).areas(area);
             let option_area =
@@ -85,7 +89,7 @@ mod widget {
                 .bold()
                 .centered()
                 .render(top, buf);
-            Line::raw(format!("Time: {} s", self.options.time))
+            Line::raw(format!("Time: {} s", state.time))
                 .bold()
                 .left_aligned()
                 .render(left, buf);
