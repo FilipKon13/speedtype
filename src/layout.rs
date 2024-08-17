@@ -19,7 +19,7 @@ impl AppLayout {
         ])
         .areas(frame_size);
         let text_area =
-            Layout::horizontal([Fill(1), Percentage(50), Fill(1)]).areas::<3>(text_lines)[1];
+            Layout::horizontal([Fill(1), Percentage(90), Fill(1)]).areas::<3>(text_lines)[1];
         AppLayout {
             gauge_area,
             stat_area,
