@@ -74,7 +74,7 @@ impl<'a> App<'a> {
                     break AppState::LiveGame(LiveGame::new(self.options.time));
                 }
                 if key == KeyCode::Esc {
-                    return Ok(None);
+                    break AppState::StartScreen(StartScreen::new());
                 }
             },
         };
@@ -87,9 +87,9 @@ impl<'a> App<'a> {
         }
     }
     pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
+        let mut cursor = None;
         loop {
             let frame = |frame: &mut Frame| {
-                let mut cursor = None;
                 frame.render_stateful_widget(&mut self, frame.size(), &mut cursor);
                 if let Some((x, y)) = cursor {
                     frame.set_cursor(x, y);
@@ -117,6 +117,7 @@ mod widget {
         type State = Option<(u16, u16)>;
         fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
             use ratatui::widgets::*;
+            *state = None;
 
             let main_block = Block::new()
                 .borders(Borders::TOP)

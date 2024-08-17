@@ -14,7 +14,7 @@ impl AppLayout {
             Length(1),
             Length(1),
             Percentage(20),
-            Length(2),
+            Length(3),
             Fill(1),
         ])
         .areas(frame_size);
