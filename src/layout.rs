@@ -123,11 +123,11 @@ impl Widget for &GameStatsScreen {
             .centered()
             .render(stat_area, buf);
         let [top_line, bot_line] = Layout::vertical([Length(1), Length(1)]).areas(text_area);
-        Line::raw(format!("WPM: {}", self.wpm))
+        Line::raw(format!("WPM: {:.02}", self.wpm))
             .bold()
             .centered()
             .render(top_line, buf);
-        Line::raw(format!("Accuracy: {}", self.acc))
+        Line::raw(format!("Accuracy: {:.02}", self.acc))
             .bold()
             .centered()
             .render(bot_line, buf);

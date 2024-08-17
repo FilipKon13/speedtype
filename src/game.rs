@@ -31,7 +31,7 @@ impl StartedGame {
         if self.time_manager.time_expired() {
             return Ok(GameAction::End(GameStats {
                 wpm: wpm_from_letters(self.text_manager.correct(), self.time_manager.duration()),
-                acc: self.text_manager.correct() as f64,
+                acc: self.text_manager.accuracy(),
             }));
         }
         let action = if let Some(key) = read_key()? {
@@ -52,6 +52,12 @@ impl StartedGame {
             GameAction::Continue
         };
         Ok(action)
+    }
+    fn wpm(&self) -> usize {
+        self.time_manager.wpm(self.text_manager.correct())
+    }
+    fn accuracy(&self) -> usize {
+        self.text_manager.accuracy().ceil() as usize
     }
     fn gauge_percent(&self) -> u16 {
         self.time_manager.percent_elapsed()
@@ -154,10 +160,10 @@ mod widget {
             text_manager.render(text_area, buf, state);
 
             if let GameState::Started(started_game) = &mut self.state {
-                let correct = started_game.text_manager.correct();
-                let wpm = started_game.time_manager.wpm(correct);
+                let acc = started_game.accuracy();
+                let wpm = started_game.wpm();
                 let gauge_percent = started_game.gauge_percent();
-                let (gauge, stat_line) = get_ui_live_widgets(wpm, correct, gauge_percent);
+                let (gauge, stat_line) = get_ui_live_widgets(wpm, acc, gauge_percent);
                 gauge.render(gauge_area, buf);
                 stat_line.render(stat_area, buf);
             }

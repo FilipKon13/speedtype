@@ -6,6 +6,7 @@ pub struct TextManager<Ws: WordSupplier> {
     word_index: Vec<usize>,
     user_text: Vec<char>,
     correct: usize,
+    typed: usize,
 }
 
 impl<Ws: WordSupplier> TextManager<Ws> {
@@ -16,6 +17,7 @@ impl<Ws: WordSupplier> TextManager<Ws> {
             word_index: vec![],
             user_text: vec![],
             correct: 0,
+            typed: 0,
         }
     }
     fn begin_of_word(&mut self, index: usize) -> usize {
@@ -73,6 +75,7 @@ impl<Ws: WordSupplier> TextManager<Ws> {
             if c == u {
                 self.correct += 1;
             }
+            self.typed += 1;
         }
     }
     pub fn handle_backspace(&mut self) {
@@ -83,6 +86,12 @@ impl<Ws: WordSupplier> TextManager<Ws> {
                 }
             }
         }
+    }
+    pub fn accuracy(&self) -> f64 {
+        if self.typed == 0 {
+            return 0f64;
+        }
+        self.correct as f64 * 100f64 / self.typed as f64
     }
     pub fn correct(&self) -> usize {
         self.correct
